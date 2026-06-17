@@ -87,11 +87,7 @@ func (WhileVerb) Execute(_ context.Context, run domain.SagaRun, step domain.Step
 		return nil, fmt.Errorf("while: max_iterations %d reached", maxIter)
 	}
 
-	env, err := cel.NewEnv(keysOf(run.Variables)...)
-	if err != nil {
-		return nil, fmt.Errorf("while: env: %w", err)
-	}
-	prg, err := env.Compile(cond)
+	prg, err := cel.CompiledProgram(keysOf(run.Variables), cond)
 	if err != nil {
 		return nil, fmt.Errorf("while: compile: %w", err)
 	}

@@ -209,11 +209,7 @@ func evalBranchesCEL(expr string, vars map[string]any) ([]any, error) {
 	for k := range vars {
 		varNames = append(varNames, k)
 	}
-	env, err := cel.NewEnv(varNames...)
-	if err != nil {
-		return nil, fmt.Errorf("new env: %w", err)
-	}
-	prg, err := env.Compile(expr)
+	prg, err := cel.CompiledProgram(varNames, expr)
 	if err != nil {
 		return nil, fmt.Errorf("compile: %w", err)
 	}
@@ -254,11 +250,7 @@ func EvalQuorumNCEL(expr string, vars map[string]any) (any, error) {
 	for k := range vars {
 		varNames = append(varNames, k)
 	}
-	env, err := cel.NewEnv(varNames...)
-	if err != nil {
-		return nil, fmt.Errorf("new env: %w", err)
-	}
-	prg, err := env.Compile(expr)
+	prg, err := cel.CompiledProgram(varNames, expr)
 	if err != nil {
 		return nil, fmt.Errorf("compile: %w", err)
 	}

@@ -77,11 +77,7 @@ func (v ForeachVerb) Execute(ctx context.Context, run domain.SagaRun, step domai
 		return nil, fmt.Errorf("foreach: start (first step ID of body) required")
 	}
 
-	env, err := cel.NewEnv(keysOf(run.Variables)...)
-	if err != nil {
-		return nil, fmt.Errorf("foreach: env: %w", err)
-	}
-	prg, err := env.Compile(listExpr)
+	prg, err := cel.CompiledProgram(keysOf(run.Variables), listExpr)
 	if err != nil {
 		return nil, fmt.Errorf("foreach: compile list: %w", err)
 	}

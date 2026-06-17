@@ -44,11 +44,7 @@ func (SwitchVerb) Execute(_ context.Context, run domain.SagaRun, step domain.Ste
 	if expr == "" {
 		return nil, fmt.Errorf("switch: expr required")
 	}
-	env, err := cel.NewEnv(keysOf(run.Variables)...)
-	if err != nil {
-		return nil, fmt.Errorf("switch: env: %w", err)
-	}
-	prg, err := env.Compile(expr)
+	prg, err := cel.CompiledProgram(keysOf(run.Variables), expr)
 	if err != nil {
 		return nil, fmt.Errorf("switch: compile: %w", err)
 	}

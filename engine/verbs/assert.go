@@ -48,11 +48,7 @@ func (AssertVerb) Execute(_ context.Context, run domain.SagaRun, step domain.Ste
 	if code == "" {
 		code = "assertion_failed"
 	}
-	env, err := cel.NewEnv(keysOf(run.Variables)...)
-	if err != nil {
-		return nil, fmt.Errorf("assert: env: %w", err)
-	}
-	prg, err := env.Compile(expr)
+	prg, err := cel.CompiledProgram(keysOf(run.Variables), expr)
 	if err != nil {
 		return nil, fmt.Errorf("assert: compile: %w", err)
 	}

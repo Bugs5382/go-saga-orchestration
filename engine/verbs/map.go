@@ -45,11 +45,7 @@ func (MapVerb) Execute(_ context.Context, run domain.SagaRun, step domain.Step) 
 	if listExpr == "" || mapExpr == "" || outVar == "" {
 		return nil, fmt.Errorf("map: list, expr, out_var required")
 	}
-	env, err := cel.NewEnv(keysOf(run.Variables)...)
-	if err != nil {
-		return nil, fmt.Errorf("map: env: %w", err)
-	}
-	listPrg, err := env.Compile(listExpr)
+	listPrg, err := cel.CompiledProgram(keysOf(run.Variables), listExpr)
 	if err != nil {
 		return nil, fmt.Errorf("map: compile list: %w", err)
 	}
@@ -61,19 +57,24 @@ func (MapVerb) Execute(_ context.Context, run domain.SagaRun, step domain.Step) 
 	if !ok {
 		return nil, fmt.Errorf("map: list expr did not produce []any, got %T", listVal)
 	}
-	mapEnv, err := cel.NewEnv(append(keysOf(run.Variables), "_")...)
-	if err != nil {
-		return nil, fmt.Errorf("map: pred env: %w", err)
-	}
-	mapPrg, err := mapEnv.Compile(mapExpr)
+	mapPrg, err := cel.CompiledProgram(append(keysOf(run.Variables), "_"), mapExpr)
 	if err != nil {
 		return nil, fmt.Errorf("map: compile expr: %w", err)
 	}
+	// Build the activation once and reuse it across elements, overwriting only
+	// the bound element "_" each iteration. Eval copies the map into its own
+	// activation and does not retain it, so reusing one map is safe and avoids
+	// cloning run.Variables per element. A run variable literally named "_"
+	// shadows the element binding, preserving the prior behavior.
+	varMap := make(map[string]any, len(run.Variables)+1)
+	for k, v := range run.Variables {
+		varMap[k] = v
+	}
+	_, shadowed := run.Variables["_"]
 	out := make([]any, 0, len(xs))
 	for _, x := range xs {
-		varMap := map[string]any{"_": x}
-		for k, v := range run.Variables {
-			varMap[k] = v
+		if !shadowed {
+			varMap["_"] = x
 		}
 		v, err := mapPrg.Eval(varMap)
 		if err != nil {

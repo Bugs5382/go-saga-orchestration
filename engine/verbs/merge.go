@@ -47,11 +47,7 @@ func (MergeVerb) Execute(_ context.Context, run domain.SagaRun, step domain.Step
 	if expr == "" || into == "" {
 		return nil, fmt.Errorf("merge: from and into required")
 	}
-	env, err := cel.NewEnv(keysOf(run.Variables)...)
-	if err != nil {
-		return nil, fmt.Errorf("merge: env: %w", err)
-	}
-	prg, err := env.Compile(expr)
+	prg, err := cel.CompiledProgram(keysOf(run.Variables), expr)
 	if err != nil {
 		return nil, fmt.Errorf("merge: compile: %w", err)
 	}

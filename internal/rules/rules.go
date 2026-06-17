@@ -55,14 +55,9 @@ func Evaluate(_ context.Context, def domain.RuleDefinition, inputs map[string]an
 	for k := range inputs {
 		varNames = append(varNames, k)
 	}
-	env, err := cel.NewEnv(varNames...)
-	if err != nil {
-		return nil, nil, fmt.Errorf("rules: new env: %w", err)
-	}
-
 	audit := make([]EvaluatedRow, 0, len(def.Spec.Rows))
 	for i, row := range def.Spec.Rows {
-		prg, err := env.Compile(row.When)
+		prg, err := cel.CompiledProgram(varNames, row.When)
 		if err != nil {
 			return nil, audit, fmt.Errorf("rules: row %d compile: %w", i, err)
 		}

@@ -5,8 +5,8 @@ Benchmarks for the saga coordinator's hot path: step advancement
 baseline and (2) guard the allocation-reduction work that follows. This page
 records the **baseline** captured before any tuning.
 
-This is issue #19. The follow-up tuning lands its before/after deltas in an
-"After" section below.
+This is issue #19. The baseline is below; the [After — PR2](#after--pr2-cel-program-cache)
+section records the tuning deltas.
 
 ## What is measured
 
@@ -118,6 +118,49 @@ allocation cost seen in the CEL verbs above.
 `NewEvent`'s cost is a `uuid.New()` plus a `time.Now()`; the hot loop emits two
 to three per step. The UUID and timestamp are audit-critical, so this is a
 documented floor rather than a tuning target.
+
+## After — PR2 (CEL program cache)
+
+The tuning adds `cel.CompiledProgram`, a thread-safe cache that memoises the
+compiled CEL program for a given (declared variable set, expression) pair, so
+the verbs no longer rebuild and recompile the environment on every dispatch.
+The map/filter verbs additionally reuse a single activation map across
+elements instead of cloning `run.Variables` per element.
+
+Allocation reductions on the CEL-bearing verbs, measured with
+`benchstat old.txt new.txt` over `-count=10 -benchtime=100ms` runs taken back
+to back on the same host:
+
+| Benchmark | allocs/op (before → after) | B/op (before → after) |
+|-----------|:--------------------------:|:---------------------:|
+| `VerbExecute/set_var_cel` | 1,021 → 6 (−99.4%) | 68,444 → 456 (−99.3%) |
+| `VerbExecute/transform` | 1,021 → 6 (−99.4%) | 68,444 → 456 (−99.3%) |
+| `VerbExecute/map_10` | 1,545 → 21 (−98.6%) | 114.5Ki → 1.58Ki (−98.6%) |
+| `VerbExecute/map_100` | 1,728 → 24 (−98.6%) | 149.5Ki → 7.05Ki (−95.3%) |
+| `VerbExecute/filter_10` | 1,610 → 21 (−98.7%) | 118.1Ki → 1.58Ki (−98.7%) |
+| `VerbExecute/filter_100` | 1,793 → 24 (−98.7%) | 153.1Ki → 7.05Ki (−95.4%) |
+| `VerbExecute/decision` | 807 → 9 (−98.9%) | 57.9Ki → 1.34Ki (−97.7%) |
+| `VerbExecuteParallel/set_var_cel` | 1,021 → 6 (−99.4%) | 68,445 → 456 (−99.3%) |
+| `VerbExecuteParallel/transform` | 1,021 → 6 (−99.4%) | 68,442 → 456 (−99.3%) |
+| `VerbExecuteParallel/map_100` | 1,728 → 24 (−98.6%) | 149.5Ki → 7.05Ki (−95.3%) |
+| **`engine/verbs` geomean** | **323 → 12 (−96.4%)** | **23.2Ki → 1.19Ki (−94.9%)** |
+
+Wall-clock falls in step with the allocations once the cache is warm
+(`set_var_cel` ~136µs → ~0.8µs, the `engine/verbs` sec/op geomean −94%), but
+timings vary with host load — the allocation columns are the authoritative
+result.
+
+What is intentionally unchanged:
+
+- **`Advance/*`** uses literal `set_var` (no CEL), so its allocs/op are
+  identical before and after; the small sec/op wobble is host noise.
+- **`VerbExecute/parallel_*`** passes literal branch lists (not a CEL string),
+  so its path is untouched (54 / 108 allocs/op unchanged).
+- **`internal/cel` `NewEnv` / `Compile` / `NewEnvCompileEval`** call the raw
+  primitives directly and remain the reference cost of an *uncached* build —
+  they show what the cache now avoids.
+- **`NewEvent`** is unchanged: its UUID + timestamp are audit-critical, so it
+  stays a documented floor rather than a tuning target.
 
 ## Comparing runs (benchstat)
 
