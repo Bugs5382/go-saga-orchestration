@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package saga.v1;
+
+option go_package = "github.com/Bugs5382/go-saga-orchestration/proto/livenesspb";
+
+// WorkerLiveness is the gRPC service workers use to report progress on
+// long-running steps. The streaming RPC is wired to the engine by the
+// engine binary's gRPC server.
+service WorkerLiveness {
+  rpc ExecuteStep(stream WorkerEvent) returns (stream EngineEvent);
+}
+
+message WorkerEvent {
+  oneof event {
+    StartJob start = 1;
+    Heartbeat heartbeat = 2;
+    Complete complete = 3;
+    Error error = 4;
+  }
+}
+
+message StartJob {
+  string run_id = 1;
+  string step_id = 2;
+  int32  attempt = 3;
+}
+
+message Heartbeat {
+  int32  progress_pct = 1;
+  string note = 2;
+}
+
+message Complete {
+  bytes result_json = 1;
+  // If non-empty, this was a dry-run; structured "what would change".
+  bytes would_change_json = 2;
+}
+
+message Error {
+  string code = 1;
+  string message = 2;
+  bool   retryable = 3;
+}
+
+message EngineEvent {
+  oneof event {
+    Acknowledged ack = 1;
+    CancelRequested cancel = 2;
+  }
+}
+
+message Acknowledged {}
+message CancelRequested { string reason = 1; }
