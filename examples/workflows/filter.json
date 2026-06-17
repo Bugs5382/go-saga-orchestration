@@ -1,0 +1,33 @@
+{
+  "id": "example.filter",
+  "version": 1,
+  "name": "Filter verb example",
+  "description": "Seeds a list of order amounts then filters to keep only amounts above the threshold.",
+  "start": "seed_amounts",
+  "published": true,
+  "steps": [
+    {
+      "id": "seed_amounts",
+      "type": "set_var",
+      "inputs": {
+        "out_var": "amounts",
+        "value": [10.0, 250.0, 75.0, 500.0, 5.0]
+      },
+      "next": "filter_large"
+    },
+    {
+      "id": "filter_large",
+      "type": "filter",
+      "inputs": {
+        "list": "amounts",
+        "expr": "_ > 100.0",
+        "out_var": "large_amounts"
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "id": "example.merge",
+  "version": 1,
+  "name": "Merge verb example",
+  "description": "Seeds a context map then deep-merges additional metadata into it via CEL.",
+  "start": "seed_context",
+  "published": true,
+  "steps": [
+    {
+      "id": "seed_context",
+      "type": "set_var",
+      "inputs": {
+        "out_var": "extra_meta",
+        "value": {"source": "api", "version": "v2"}
+      },
+      "next": "merge_into_ctx"
+    },
+    {
+      "id": "merge_into_ctx",
+      "type": "merge",
+      "inputs": {
+        "from": "extra_meta",
+        "into": "ctx"
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

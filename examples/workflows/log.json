@@ -1,0 +1,32 @@
+{
+  "id": "example.log",
+  "version": 1,
+  "name": "Log verb example",
+  "description": "Logs an info message and a warning at different severity levels.",
+  "start": "log_start",
+  "published": true,
+  "steps": [
+    {
+      "id": "log_start",
+      "type": "log",
+      "inputs": {
+        "message": "Order processing started",
+        "level": "info"
+      },
+      "next": "log_warning"
+    },
+    {
+      "id": "log_warning",
+      "type": "log",
+      "inputs": {
+        "message": "Inventory level is below safety stock threshold",
+        "level": "warn"
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

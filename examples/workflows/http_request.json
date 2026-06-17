@@ -1,0 +1,34 @@
+{
+  "id": "example.http_request",
+  "version": 1,
+  "name": "Http_request verb example",
+  "description": "POSTs an order payload to an external fulfillment API and stores the result.",
+  "start": "submit_order",
+  "published": true,
+  "steps": [
+    {
+      "id": "submit_order",
+      "type": "http_request",
+      "inputs": {
+        "method": "POST",
+        "url": "https://fulfillment.example.com/api/orders",
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Client-ID": "saga-engine"
+        },
+        "body": {
+          "sku": "WIDGET-42",
+          "quantity": 3,
+          "destination": "warehouse-A"
+        },
+        "timeout_s": 10,
+        "out_var": "fulfillment_response"
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

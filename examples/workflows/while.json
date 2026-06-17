@@ -1,0 +1,44 @@
+{
+  "id": "example.while",
+  "version": 1,
+  "name": "While verb example",
+  "description": "Seeds a retry counter and loops while the counter is below 3, incrementing each iteration.",
+  "start": "init_counter",
+  "published": true,
+  "steps": [
+    {
+      "id": "init_counter",
+      "type": "set_var",
+      "inputs": {
+        "out_var": "retry_count",
+        "value": 0
+      },
+      "next": "check_retry"
+    },
+    {
+      "id": "check_retry",
+      "type": "while",
+      "inputs": {
+        "condition": "retry_count < 3",
+        "max_iterations": 10
+      },
+      "branches": {
+        "continue": { "next": "increment_counter" },
+        "exit": { "next": "end" }
+      }
+    },
+    {
+      "id": "increment_counter",
+      "type": "transform",
+      "inputs": {
+        "expr": "retry_count + 1",
+        "out_var": "retry_count"
+      },
+      "next": "check_retry"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

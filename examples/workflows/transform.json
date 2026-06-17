@@ -1,0 +1,32 @@
+{
+  "id": "example.transform",
+  "version": 1,
+  "name": "Transform verb example",
+  "description": "Seeds a price variable then transforms it to a discounted price via CEL.",
+  "start": "seed_price",
+  "published": true,
+  "steps": [
+    {
+      "id": "seed_price",
+      "type": "set_var",
+      "inputs": {
+        "out_var": "unit_price",
+        "value": 100.0
+      },
+      "next": "apply_discount"
+    },
+    {
+      "id": "apply_discount",
+      "type": "transform",
+      "inputs": {
+        "expr": "unit_price * 0.9",
+        "out_var": "discounted_price"
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

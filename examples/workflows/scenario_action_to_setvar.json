@@ -1,0 +1,30 @@
+{
+  "id": "scenario.action_to_setvar",
+  "version": 1,
+  "name": "Scenario: action output feeds a later set_var",
+  "description": "Data hand-off across steps. The 'charge' action's worker result is merged into run.Variables (by CompleteAction); the later 'label' set_var reads it via a CEL expr. Verbs run one-per-step; the dependency flows through Variables, not within a single step.",
+  "start": "charge",
+  "published": true,
+  "steps": [
+    {
+      "id": "charge",
+      "type": "action",
+      "action": "billing.charge",
+      "inputs": { "amount": 100, "currency": "USD" },
+      "next": "label"
+    },
+    {
+      "id": "label",
+      "type": "set_var",
+      "inputs": {
+        "out_var": "receipt",
+        "expr": "'txn_' + charge_id"
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "id": "example.decision",
+  "version": 1,
+  "name": "Decision verb example",
+  "description": "Evaluates a stored rule to approve or reject a request.",
+  "start": "evaluate_approval",
+  "published": true,
+  "steps": [
+    {
+      "id": "evaluate_approval",
+      "type": "decision",
+      "inputs": {
+        "rule_id": "approval_rule",
+        "inputs_map": {
+          "amount": "request_amount",
+          "requester_level": "user_level"
+        }
+      },
+      "branches": {
+        "approved": { "next": "log_approved" },
+        "rejected": { "next": "log_rejected" }
+      }
+    },
+    {
+      "id": "log_approved",
+      "type": "log",
+      "inputs": {
+        "message": "Request approved by rule engine",
+        "level": "info"
+      },
+      "next": "end"
+    },
+    {
+      "id": "log_rejected",
+      "type": "log",
+      "inputs": {
+        "message": "Request rejected by rule engine",
+        "level": "warn"
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

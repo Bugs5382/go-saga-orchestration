@@ -1,0 +1,44 @@
+{
+  "id": "example.wait_for_signal",
+  "version": 1,
+  "name": "Wait_for_signal verb example",
+  "description": "Awaits an external payment_confirmed signal with a 24-hour timeout escalation branch.",
+  "start": "await_payment",
+  "published": true,
+  "steps": [
+    {
+      "id": "await_payment",
+      "type": "wait_for_signal",
+      "inputs": {
+        "name": "payment_confirmed",
+        "timeout_s": 86400
+      },
+      "next": "payment_received",
+      "branches": {
+        "timeout": { "next": "payment_timed_out" }
+      }
+    },
+    {
+      "id": "payment_received",
+      "type": "log",
+      "inputs": {
+        "message": "Payment signal received; proceeding with fulfillment",
+        "level": "info"
+      },
+      "next": "end"
+    },
+    {
+      "id": "payment_timed_out",
+      "type": "log",
+      "inputs": {
+        "message": "Payment signal timed out after 24 hours; escalating",
+        "level": "warn"
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

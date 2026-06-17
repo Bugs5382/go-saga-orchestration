@@ -1,0 +1,27 @@
+{
+  "id": "example.metric_emit",
+  "version": 1,
+  "name": "Metric_emit verb example",
+  "description": "Emits a counter metric with labels after an order is fulfilled.",
+  "start": "emit_order_count",
+  "published": true,
+  "steps": [
+    {
+      "id": "emit_order_count",
+      "type": "metric_emit",
+      "inputs": {
+        "name": "orders_fulfilled_total",
+        "value": 1,
+        "labels": {
+          "region": "us-east-1",
+          "channel": "web"
+        }
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

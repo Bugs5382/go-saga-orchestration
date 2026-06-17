@@ -1,0 +1,32 @@
+{
+  "id": "example.emit_event",
+  "version": 1,
+  "name": "Emit_event verb example",
+  "description": "Publishes an order.shipped domain event to RabbitMQ for downstream subscribers.",
+  "start": "publish_shipped_event",
+  "published": true,
+  "steps": [
+    {
+      "id": "publish_shipped_event",
+      "type": "emit_event",
+      "inputs": {
+        "topic": "order.shipped",
+        "headers": {
+          "tenant": "acme-corp",
+          "schema_version": "1.0"
+        },
+        "payload": {
+          "order_id": "ORD-12345",
+          "carrier": "FedEx",
+          "tracking_number": "1Z999AA1012345678",
+          "estimated_delivery": "2027-02-01"
+        }
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

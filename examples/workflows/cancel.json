@@ -1,0 +1,30 @@
+{
+  "id": "example.cancel",
+  "version": 1,
+  "name": "Cancel verb example",
+  "description": "Logs a cancellation reason then self-cancels the current saga run.",
+  "start": "log_cancellation",
+  "published": true,
+  "steps": [
+    {
+      "id": "log_cancellation",
+      "type": "log",
+      "inputs": {
+        "message": "Order cancelled by customer before shipment",
+        "level": "warn"
+      },
+      "next": "self_cancel"
+    },
+    {
+      "id": "self_cancel",
+      "type": "cancel",
+      "inputs": {
+        "reason": "customer_requested_cancellation"
+      }
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

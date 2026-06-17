@@ -1,0 +1,28 @@
+{
+  "id": "example.emit_signal",
+  "version": 1,
+  "name": "Emit_signal verb example",
+  "description": "Sends a payment_confirmed signal to a target saga run that is waiting for it.",
+  "start": "signal_payment_confirmed",
+  "published": true,
+  "steps": [
+    {
+      "id": "signal_payment_confirmed",
+      "type": "emit_signal",
+      "inputs": {
+        "run_id": "00000000-0000-0000-0000-000000000001",
+        "name": "payment_confirmed",
+        "payload": {
+          "transaction_id": "TXN-88888",
+          "amount": 149.99,
+          "currency": "USD"
+        }
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

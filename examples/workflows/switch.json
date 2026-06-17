@@ -1,0 +1,52 @@
+{
+  "id": "example.switch",
+  "version": 1,
+  "name": "Switch verb example",
+  "description": "Seeds a fulfillment channel then routes to the appropriate handler branch.",
+  "start": "seed_channel",
+  "published": true,
+  "steps": [
+    {
+      "id": "seed_channel",
+      "type": "set_var",
+      "inputs": {
+        "out_var": "channel",
+        "value": "express"
+      },
+      "next": "route_by_channel"
+    },
+    {
+      "id": "route_by_channel",
+      "type": "switch",
+      "inputs": {
+        "expr": "channel"
+      },
+      "branches": {
+        "standard": { "next": "handle_standard" },
+        "express": { "next": "handle_express" }
+      }
+    },
+    {
+      "id": "handle_standard",
+      "type": "log",
+      "inputs": {
+        "message": "Processing standard fulfillment",
+        "level": "info"
+      },
+      "next": "end"
+    },
+    {
+      "id": "handle_express",
+      "type": "log",
+      "inputs": {
+        "message": "Processing express fulfillment",
+        "level": "info"
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

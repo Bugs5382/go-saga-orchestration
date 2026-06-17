@@ -1,0 +1,56 @@
+{
+  "id": "example.parallel",
+  "version": 1,
+  "name": "Parallel verb example",
+  "description": "Fans out two notification branches in parallel and waits for both to complete.",
+  "start": "fan_out_notifications",
+  "published": true,
+  "steps": [
+    {
+      "id": "fan_out_notifications",
+      "type": "parallel",
+      "inputs": {
+        "join_strategy": "all",
+        "branches": [
+          {
+            "key": "email_branch",
+            "start": "send_email",
+            "steps": [
+              {
+                "id": "send_email",
+                "type": "log",
+                "inputs": {
+                  "message": "Email notification sent",
+                  "level": "info"
+                },
+                "next": "email_end"
+              },
+              { "id": "email_end", "type": "end" }
+            ]
+          },
+          {
+            "key": "sms_branch",
+            "start": "send_sms",
+            "steps": [
+              {
+                "id": "send_sms",
+                "type": "log",
+                "inputs": {
+                  "message": "SMS notification sent",
+                  "level": "info"
+                },
+                "next": "sms_end"
+              },
+              { "id": "sms_end", "type": "end" }
+            ]
+          }
+        ]
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

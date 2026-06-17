@@ -1,0 +1,25 @@
+{
+  "id": "example.action",
+  "version": 1,
+  "name": "Action verb example",
+  "description": "Dispatches an action to a worker service then ends.",
+  "start": "send_email",
+  "published": true,
+  "steps": [
+    {
+      "id": "send_email",
+      "type": "action",
+      "action": "notifications.send_email",
+      "inputs": {
+        "to": "user@example.com",
+        "subject": "Your order is confirmed",
+        "template": "order_confirmation"
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

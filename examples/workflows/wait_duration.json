@@ -1,0 +1,31 @@
+{
+  "id": "example.wait_duration",
+  "version": 1,
+  "name": "Wait_duration verb example",
+  "description": "Pauses a saga for 30 minutes to allow a cooling-off period before sending a follow-up.",
+  "start": "cooling_off",
+  "published": true,
+  "steps": [
+    {
+      "id": "cooling_off",
+      "type": "wait_duration",
+      "inputs": {
+        "duration": "30m"
+      },
+      "next": "send_followup"
+    },
+    {
+      "id": "send_followup",
+      "type": "log",
+      "inputs": {
+        "message": "Cooling-off period elapsed; sending follow-up communication",
+        "level": "info"
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

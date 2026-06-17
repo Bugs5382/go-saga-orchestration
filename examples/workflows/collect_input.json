@@ -1,0 +1,41 @@
+{
+  "id": "example.collect_input",
+  "version": 1,
+  "name": "Collect_input verb example",
+  "description": "Collects a remediation plan from an on-call engineer via a structured form.",
+  "start": "collect_remediation_plan",
+  "published": true,
+  "steps": [
+    {
+      "id": "collect_remediation_plan",
+      "type": "collect_input",
+      "inputs": {
+        "assignee": "oncall-engineer",
+        "due_in": "2h",
+        "form_schema": {
+          "type": "object",
+          "properties": {
+            "root_cause": {
+              "type": "string",
+              "description": "Describe the identified root cause"
+            },
+            "action_taken": {
+              "type": "string",
+              "description": "Describe corrective actions taken"
+            },
+            "prevention_steps": {
+              "type": "string",
+              "description": "Describe steps to prevent recurrence"
+            }
+          },
+          "required": ["root_cause", "action_taken"]
+        }
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

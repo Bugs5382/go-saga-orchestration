@@ -1,0 +1,31 @@
+{
+  "id": "example.wait_until",
+  "version": 1,
+  "name": "Wait_until verb example",
+  "description": "Pauses a saga until a scheduled maintenance window opens at a fixed wall-clock time.",
+  "start": "await_window",
+  "published": true,
+  "steps": [
+    {
+      "id": "await_window",
+      "type": "wait_until",
+      "inputs": {
+        "timestamp": "2027-01-15T02:00:00Z"
+      },
+      "next": "begin_maintenance"
+    },
+    {
+      "id": "begin_maintenance",
+      "type": "log",
+      "inputs": {
+        "message": "Maintenance window opened; starting deployment",
+        "level": "info"
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}
