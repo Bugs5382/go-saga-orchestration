@@ -1,4 +1,4 @@
-package sagaorchestration
+package domain
 
 /*
 MIT License
@@ -23,9 +23,45 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 
-import "fmt"
+import (
+	"testing"
 
-// Hello greets a name. Replace with the package's real entry point.
-func Hello(name string) string {
-	return fmt.Sprintf("Hello, %s!", name)
+	"github.com/google/uuid"
+)
+
+func TestRunStateIsTerminal(t *testing.T) {
+	cases := []struct {
+		state    RunState
+		terminal bool
+	}{
+		{RunStatePending, false},
+		{RunStateRunning, false},
+		{RunStatePaused, false},
+		{RunStateCompensating, false},
+		{RunStateSucceeded, true},
+		{RunStateFailed, true},
+		{RunStateCancelled, true},
+	}
+	for _, c := range cases {
+		if got := c.state.IsTerminal(); got != c.terminal {
+			t.Errorf("%s.IsTerminal() = %v, want %v", c.state, got, c.terminal)
+		}
+	}
+}
+
+func TestNewRun(t *testing.T) {
+	defID := uuid.New()
+	r := NewSagaRun("wf_trivial", defID, nil, map[string]any{"k": "v"})
+	if r.ID == uuid.Nil {
+		t.Error("expected ID to be generated")
+	}
+	if r.State != RunStatePending {
+		t.Errorf("state = %s, want pending", r.State)
+	}
+	if r.WorkflowID != "wf_trivial" {
+		t.Errorf("workflow_id = %q", r.WorkflowID)
+	}
+	if r.DefinitionID != defID {
+		t.Errorf("definition_id mismatch")
+	}
 }

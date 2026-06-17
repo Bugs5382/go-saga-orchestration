@@ -1,4 +1,4 @@
-package sagaorchestration
+package domain
 
 /*
 MIT License
@@ -23,10 +23,20 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 
-import "testing"
+import (
+	"time"
 
-func TestHello(t *testing.T) {
-	if got, want := Hello("world"), "Hello, world!"; got != want {
-		t.Errorf("Hello() = %q, want %q", got, want)
-	}
+	"github.com/google/uuid"
+)
+
+// SagaSignal is one row in runtime.saga_signals. External code writes
+// these via POST /sagas/{id}/signal/{name}; the engine consumes them
+// to wake `wait_for_signal` steps.
+type SagaSignal struct {
+	ID         uuid.UUID      `json:"id"`
+	RunID      uuid.UUID      `json:"run_id"`
+	SignalName string         `json:"signal_name"`
+	Payload    map[string]any `json:"payload,omitempty"`
+	ReceivedAt time.Time      `json:"received_at"`
+	ConsumedAt *time.Time     `json:"consumed_at,omitempty"`
 }
