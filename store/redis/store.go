@@ -234,46 +234,6 @@ func (s *Store) StatsForWorkflow(_ context.Context, _ string) (store.WorkflowSta
 	panic("not implemented: StatsForWorkflow")
 }
 
-func (s *Store) SetPausedWithWakeup(_ context.Context, _ uuid.UUID, _ time.Time) error {
-	panic("not implemented: SetPausedWithWakeup")
-}
-
-func (s *Store) SetPausedAwaitingSignal(_ context.Context, _ uuid.UUID, _ string, _ *time.Time) error {
-	panic("not implemented: SetPausedAwaitingSignal")
-}
-
-func (s *Store) SetPausedAwaitingEvent(_ context.Context, _ uuid.UUID, _ string, _ map[string]string) error {
-	panic("not implemented: SetPausedAwaitingEvent")
-}
-
-func (s *Store) SetPausedAwaitingEventWithDeadline(_ context.Context, _ uuid.UUID, _ string, _ map[string]string, _ *time.Time) error {
-	panic("not implemented: SetPausedAwaitingEventWithDeadline")
-}
-
-func (s *Store) ClearPause(_ context.Context, _ uuid.UUID) error {
-	panic("not implemented: ClearPause")
-}
-
-func (s *Store) FindRunsByDueWakeup(_ context.Context, _ time.Time, _ int) ([]uuid.UUID, error) {
-	panic("not implemented: FindRunsByDueWakeup")
-}
-
-func (s *Store) FindRunsByAwaitedEvent(_ context.Context, _ string) ([]domain.SagaRun, error) {
-	panic("not implemented: FindRunsByAwaitedEvent")
-}
-
-func (s *Store) TryConsumeAwaitedSignal(_ context.Context, _ uuid.UUID, _ string) (bool, error) {
-	panic("not implemented: TryConsumeAwaitedSignal")
-}
-
-func (s *Store) AppendSignal(_ context.Context, _ domain.SagaSignal) error {
-	panic("not implemented: AppendSignal")
-}
-
-func (s *Store) WakeFromExternal(_ context.Context, _ uuid.UUID) error {
-	panic("not implemented: WakeFromExternal")
-}
-
 func (s *Store) SpawnChildRun(_ context.Context, _ uuid.UUID, _, _ string, _ domain.WorkflowDefinition, _ map[string]any) (uuid.UUID, error) {
 	panic("not implemented: SpawnChildRun")
 }
