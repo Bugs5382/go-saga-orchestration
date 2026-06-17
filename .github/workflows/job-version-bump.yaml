@@ -50,13 +50,13 @@ jobs:
 
       - name: Create GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@v3.1.1
+        uses: actions/create-github-app-token@v3.2.0
         with:
           client-id: "Iv23ligVrrLzGPXe28dn"
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
       - name: 📂 Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
@@ -85,7 +85,7 @@ jobs:
 
       - name: 📤 Run Changelog Action
         if: steps.releasable.outputs.yes == 'true'
-        uses: bugs5382/changelog-updater-action@v0.3.2
+        uses: bugs5382/changelog-updater-action@v0.4.0
         with:
           tag: ${{ github.event.inputs.tag || format('v{0}', steps.drafter.outputs.resolved_version) }}
           notes: ${{ steps.drafter.outputs.body }}
