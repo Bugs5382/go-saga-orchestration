@@ -33,6 +33,12 @@ import (
 
 // applyTerminalTTL queues EXPIRE commands for the run's key group inside the
 // given pipeline. It is a no-op when runTTL is zero (TTL disabled).
+//
+// Ordering guarantee: these EXPIRE commands are queued before the run-blob
+// SET ... KEEPTTL that follows in the same MULTI/EXEC pipeline. EXPIRE
+// therefore sets the TTL on the already-existing key, and the subsequent SET
+// with KEEPTTL preserves that TTL rather than clearing it. Reversing the order
+// would cause KEEPTTL to inherit a -1 (no expiry) instead of the intended TTL.
 func (s *Store) applyTerminalTTL(ctx context.Context, p goredis.Pipeliner, runID uuid.UUID) {
 	if s.runTTL <= 0 {
 		return

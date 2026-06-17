@@ -35,6 +35,21 @@ import (
 	"github.com/Bugs5382/go-saga-orchestration/domain"
 )
 
+// checkTTLBounds asserts that the Redis key has a TTL in (0, max].
+func checkTTLBounds(t *testing.T, ctx context.Context, s *Store, key string, max time.Duration) {
+	t.Helper()
+	ttl, err := s.rdb.TTL(ctx, key).Result()
+	if err != nil {
+		t.Fatalf("TTL(%s) failed: %v", key, err)
+	}
+	if ttl <= 0 {
+		t.Errorf("expected TTL > 0 for key %s after terminal transition, got %v", key, ttl)
+	}
+	if ttl > max {
+		t.Errorf("TTL %v for key %s exceeds configured runTTL %v", ttl, key, max)
+	}
+}
+
 func TestTerminalRunTTL(t *testing.T) {
 	url := os.Getenv("TEST_REDIS_URL")
 	if url == "" {
@@ -63,21 +78,26 @@ func TestTerminalRunTTL(t *testing.T) {
 		t.Fatalf("append event: %v", err)
 	}
 
+	sig := domain.SagaSignal{
+		ID:         uuid.New(),
+		RunID:      run.ID,
+		SignalName: "test-signal",
+		ReceivedAt: time.Now().UTC(),
+	}
+	if err := s.AppendSignal(ctx, sig); err != nil {
+		t.Fatalf("append signal: %v", err)
+	}
+
 	// Transition to a terminal state; this should set TTL on the run keys.
 	if err := s.UpdateRunState(ctx, run.ID, domain.RunStateSucceeded, "done"); err != nil {
 		t.Fatalf("update run state: %v", err)
 	}
 
-	// Assert the run key has a positive TTL immediately after transition.
-	runKey := s.key("run", run.ID.String())
-	ttl, err := s.rdb.TTL(ctx, runKey).Result()
-	if err != nil {
-		t.Fatalf("TTL command failed: %v", err)
-	}
-	if ttl <= 0 {
-		t.Errorf("expected run key TTL > 0 after terminal transition, got %v (key may have no expiry set)", ttl)
-	}
-	if ttl > runTTL {
-		t.Errorf("TTL %v exceeds configured runTTL %v", ttl, runTTL)
-	}
+	id := run.ID.String()
+
+	// Assert run, events, and signals keys each have a positive TTL
+	// immediately after the terminal transition (no sleep needed).
+	checkTTLBounds(t, ctx, s, s.key("run", id), runTTL)
+	checkTTLBounds(t, ctx, s, s.key("events", id), runTTL)
+	checkTTLBounds(t, ctx, s, s.key("signals", id), runTTL)
 }
