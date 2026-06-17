@@ -56,12 +56,7 @@ func (SetVarVerb) Execute(_ context.Context, run domain.SagaRun, step domain.Ste
 		if expr == "" {
 			return nil, fmt.Errorf("set_var: expr must be a non-empty string")
 		}
-		varNames := keysOf(run.Variables)
-		env, err := cel.NewEnv(varNames...)
-		if err != nil {
-			return nil, fmt.Errorf("set_var: env: %w", err)
-		}
-		prg, err := env.Compile(expr)
+		prg, err := cel.CompiledProgram(keysOf(run.Variables), expr)
 		if err != nil {
 			return nil, fmt.Errorf("set_var: compile: %w", err)
 		}

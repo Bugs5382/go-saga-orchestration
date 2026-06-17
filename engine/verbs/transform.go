@@ -48,11 +48,7 @@ func (TransformVerb) Execute(_ context.Context, run domain.SagaRun, step domain.
 	if outVar == "" {
 		return nil, fmt.Errorf("transform: out_var required")
 	}
-	env, err := cel.NewEnv(keysOf(run.Variables)...)
-	if err != nil {
-		return nil, fmt.Errorf("transform: env: %w", err)
-	}
-	prg, err := env.Compile(expr)
+	prg, err := cel.CompiledProgram(keysOf(run.Variables), expr)
 	if err != nil {
 		return nil, fmt.Errorf("transform: compile: %w", err)
 	}

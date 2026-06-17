@@ -46,11 +46,7 @@ func (FilterVerb) Execute(_ context.Context, run domain.SagaRun, step domain.Ste
 	if listExpr == "" || predExpr == "" || outVar == "" {
 		return nil, fmt.Errorf("filter: list, expr, out_var required")
 	}
-	env, err := cel.NewEnv(keysOf(run.Variables)...)
-	if err != nil {
-		return nil, fmt.Errorf("filter: env: %w", err)
-	}
-	listPrg, err := env.Compile(listExpr)
+	listPrg, err := cel.CompiledProgram(keysOf(run.Variables), listExpr)
 	if err != nil {
 		return nil, fmt.Errorf("filter: compile list: %w", err)
 	}
@@ -62,19 +58,23 @@ func (FilterVerb) Execute(_ context.Context, run domain.SagaRun, step domain.Ste
 	if !ok {
 		return nil, fmt.Errorf("filter: list expr did not produce []any, got %T", listVal)
 	}
-	predEnv, err := cel.NewEnv(append(keysOf(run.Variables), "_")...)
-	if err != nil {
-		return nil, fmt.Errorf("filter: pred env: %w", err)
-	}
-	predPrg, err := predEnv.Compile(predExpr)
+	predPrg, err := cel.CompiledProgram(append(keysOf(run.Variables), "_"), predExpr)
 	if err != nil {
 		return nil, fmt.Errorf("filter: compile pred: %w", err)
 	}
+	// Reuse one activation across elements (see map.go for the rationale): Eval
+	// does not retain the map, so overwriting "_" per element avoids cloning
+	// run.Variables each time. A run variable named "_" shadows the element
+	// binding, preserving the prior behavior.
+	varMap := make(map[string]any, len(run.Variables)+1)
+	for k, v := range run.Variables {
+		varMap[k] = v
+	}
+	_, shadowed := run.Variables["_"]
 	out := make([]any, 0, len(xs))
 	for _, x := range xs {
-		varMap := map[string]any{"_": x}
-		for k, v := range run.Variables {
-			varMap[k] = v
+		if !shadowed {
+			varMap["_"] = x
 		}
 		v, err := predPrg.Eval(varMap)
 		if err != nil {
