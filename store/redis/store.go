@@ -126,7 +126,7 @@ func unmarshalJSON(b []byte, dest any) error {
 // map[string]any and []any to int or float64.
 func walkAndConvert(rv reflect.Value) {
 	switch rv.Kind() {
-	case reflect.Ptr, reflect.Interface:
+	case reflect.Pointer, reflect.Interface:
 		if !rv.IsNil() {
 			walkAndConvert(rv.Elem())
 		}
