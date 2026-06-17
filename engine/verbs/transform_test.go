@@ -1,0 +1,50 @@
+package verbs
+
+/*
+MIT License
+
+Copyright (c) 2026 Bugs5382
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+*/
+
+import (
+	"context"
+	"testing"
+
+	"github.com/Bugs5382/go-saga-orchestration/domain"
+)
+
+func TestTransform_Arithmetic(t *testing.T) {
+	out, err := TransformVerb{}.Execute(context.Background(),
+		domain.SagaRun{Variables: map[string]any{"x": int64(10)}},
+		domain.Step{Inputs: map[string]any{"expr": "x + 5", "out_var": "y"}})
+	if err != nil {
+		t.Fatalf("unexpected: %v", err)
+	}
+	if out["y"].(int64) != 15 {
+		t.Errorf("y = %v, want 15", out["y"])
+	}
+}
+
+func TestTransform_MissingExpr(t *testing.T) {
+	_, err := TransformVerb{}.Execute(context.Background(), domain.SagaRun{}, domain.Step{Inputs: map[string]any{"out_var": "y"}})
+	if err == nil {
+		t.Errorf("expected error for missing expr")
+	}
+}
