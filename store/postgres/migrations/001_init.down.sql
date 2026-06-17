@@ -1,0 +1,12 @@
+DROP TABLE IF EXISTS runtime.saga_user_tasks;
+DROP TABLE IF EXISTS runtime.saga_signals;
+DROP TABLE IF EXISTS runtime.saga_trigger_fires;
+DROP TABLE IF EXISTS runtime.saga_dlq_items;
+DROP TABLE IF EXISTS audit.saga_run_events;
+DROP TABLE IF EXISTS runtime.saga_runs;
+DROP TABLE IF EXISTS definitions.action_registry;
+DROP TABLE IF EXISTS definitions.rule_definitions;
+DROP TABLE IF EXISTS definitions.workflow_definitions;
+DROP SCHEMA IF EXISTS audit;
+DROP SCHEMA IF EXISTS runtime;
+DROP SCHEMA IF EXISTS definitions;
