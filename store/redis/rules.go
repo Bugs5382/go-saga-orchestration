@@ -27,6 +27,9 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 import (
 	"context"
 	"encoding/json"
+	"errors"
+
+	goredis "github.com/redis/go-redis/v9"
 
 	"github.com/google/uuid"
 
@@ -34,9 +37,10 @@ import (
 	"github.com/Bugs5382/go-saga-orchestration/store"
 )
 
-// UpsertRuleDefinition stores def. If def.ID is the zero UUID a new one is
-// generated. When re-upserting an existing storage ID the old version-list
-// entry is removed first to prevent duplicates.
+// UpsertRuleDefinition stores def atomically using a WATCH/MULTI optimistic
+// transaction retry loop. If def.ID is the zero UUID a new one is generated.
+// When re-upserting an existing storage ID the old version-list entry is
+// removed inside the same transaction to prevent duplicates under concurrency.
 func (s *Store) UpsertRuleDefinition(ctx context.Context, def domain.RuleDefinition) (uuid.UUID, error) {
 	// Preserve caller-supplied ID; generate one only when the zero UUID is passed.
 	id := def.ID
@@ -45,30 +49,43 @@ func (s *Store) UpsertRuleDefinition(ctx context.Context, def domain.RuleDefinit
 		def.ID = id
 	}
 
-	// If this storage ID already exists, remove the old version-list entry so
-	// we do not accumulate duplicates.
-	existing, ok, err := getJSON[domain.RuleDefinition](ctx, s.rdb, s.key("rule", id.String()))
-	if err != nil {
-		return uuid.Nil, err
-	}
-	if ok {
-		// Remove the old entry from the version list before re-appending.
-		if err := s.rdb.LRem(ctx, s.key("rule", "byid", existing.RuleID), 0, id.String()).Err(); err != nil {
-			return uuid.Nil, err
-		}
-	}
+	rk := s.key("rule", id.String())
 
 	b, err := json.Marshal(def)
 	if err != nil {
 		return uuid.Nil, err
 	}
-	pipe := s.rdb.Pipeline()
-	pipe.Set(ctx, s.key("rule", id.String()), b, 0)
-	pipe.RPush(ctx, s.key("rule", "byid", def.RuleID), id.String())
-	if _, err := pipe.Exec(ctx); err != nil {
-		return uuid.Nil, err
+
+	for i := 0; i < txMaxRetries; i++ {
+		err = s.rdb.Watch(ctx, func(tx *goredis.Tx) error {
+			// Read existing blob inside the WATCH so any concurrent write to rk
+			// invalidates the transaction.
+			existing, ok, err := getJSON[domain.RuleDefinition](ctx, tx, rk)
+			if err != nil {
+				return err
+			}
+
+			_, txErr := tx.TxPipelined(ctx, func(p goredis.Pipeliner) error {
+				if ok {
+					// Remove the stale version-list entry before re-appending.
+					p.LRem(ctx, s.key("rule", "byid", existing.RuleID), 0, id.String())
+				}
+				p.Set(ctx, rk, b, 0)
+				p.RPush(ctx, s.key("rule", "byid", def.RuleID), id.String())
+				return nil
+			})
+			return txErr
+		}, rk)
+
+		if errors.Is(err, goredis.TxFailedErr) {
+			continue // optimistic conflict; retry
+		}
+		if err != nil {
+			return uuid.Nil, err
+		}
+		return id, nil
 	}
-	return id, nil
+	return uuid.Nil, errors.New("redis: tx retry budget exhausted for rule " + id.String())
 }
 
 // GetPublishedRuleByID returns the newest published version of ruleID, falling
