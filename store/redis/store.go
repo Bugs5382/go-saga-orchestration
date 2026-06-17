@@ -25,9 +25,11 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"time"
 
 	"github.com/google/uuid"
@@ -102,7 +104,84 @@ func getJSON[T any](ctx context.Context, rdb goredis.Cmdable, key string) (T, bo
 	if err != nil {
 		return v, false, err
 	}
-	return v, true, json.Unmarshal(b, &v)
+	return v, true, unmarshalJSON(b, &v)
+}
+
+// unmarshalJSON decodes JSON bytes into dest. Numbers inside map[string]any
+// and []any fields are decoded as int (whole numbers) or float64 rather than
+// float64 for all numbers as standard json.Unmarshal does.
+func unmarshalJSON(b []byte, dest any) error {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	if err := dec.Decode(dest); err != nil {
+		return err
+	}
+	// Walk the decoded value and convert json.Number leaves inside any
+	// map[string]any or []any fields to native int or float64.
+	walkAndConvert(reflect.ValueOf(dest))
+	return nil
+}
+
+// walkAndConvert recursively walks rv and converts json.Number values inside
+// map[string]any and []any to int or float64.
+func walkAndConvert(rv reflect.Value) {
+	switch rv.Kind() {
+	case reflect.Ptr, reflect.Interface:
+		if !rv.IsNil() {
+			walkAndConvert(rv.Elem())
+		}
+	case reflect.Struct:
+		for i := 0; i < rv.NumField(); i++ {
+			walkAndConvert(rv.Field(i))
+		}
+	case reflect.Slice:
+		if rv.Type() == reflect.TypeOf([]any(nil)) {
+			for i := 0; i < rv.Len(); i++ {
+				elem := rv.Index(i)
+				if converted, ok := convertJSONNumber(elem.Elem()); ok {
+					elem.Set(reflect.ValueOf(converted))
+				} else {
+					walkAndConvert(elem)
+				}
+			}
+		} else {
+			for i := 0; i < rv.Len(); i++ {
+				walkAndConvert(rv.Index(i))
+			}
+		}
+	case reflect.Map:
+		if rv.Type() == reflect.TypeOf(map[string]any(nil)) {
+			for _, k := range rv.MapKeys() {
+				v := rv.MapIndex(k)
+				if converted, ok := convertJSONNumber(v.Elem()); ok {
+					rv.SetMapIndex(k, reflect.ValueOf(converted))
+				} else {
+					// Recurse into nested maps/slices via a temporary.
+					tmp := v.Elem()
+					walkAndConvert(tmp)
+				}
+			}
+		}
+	}
+}
+
+// convertJSONNumber converts a json.Number reflect.Value to int or float64.
+// Returns (converted, true) if rv holds a json.Number, (nil, false) otherwise.
+func convertJSONNumber(rv reflect.Value) (any, bool) {
+	if !rv.IsValid() {
+		return nil, false
+	}
+	num, ok := rv.Interface().(json.Number)
+	if !ok {
+		return nil, false
+	}
+	if i, err := num.Int64(); err == nil {
+		return int(i), true
+	}
+	if f, err := num.Float64(); err == nil {
+		return f, true
+	}
+	return string(num), true
 }
 
 // txRun runs mutate against the run under WATCH/MULTI, persisting the result.
@@ -141,31 +220,7 @@ func (s *Store) txRun(ctx context.Context, runID uuid.UUID, mutate func(r *domai
 	return errors.New("redis: tx retry budget exhausted for run " + runID.String())
 }
 
-// --- store.Store method stubs ---
-
-func (s *Store) GetWorkflowDefinition(_ context.Context, _ uuid.UUID) (domain.WorkflowDefinition, error) {
-	panic("not implemented: GetWorkflowDefinition")
-}
-
-func (s *Store) GetPublishedWorkflowByID(_ context.Context, _ string, _ *uuid.UUID) (domain.WorkflowDefinition, error) {
-	panic("not implemented: GetPublishedWorkflowByID")
-}
-
-func (s *Store) UpsertWorkflowDefinition(_ context.Context, _ domain.WorkflowDefinition) (uuid.UUID, error) {
-	panic("not implemented: UpsertWorkflowDefinition")
-}
-
-func (s *Store) CreateRun(_ context.Context, _ domain.SagaRun) error {
-	panic("not implemented: CreateRun")
-}
-
-func (s *Store) GetRun(_ context.Context, _ uuid.UUID) (domain.SagaRun, error) {
-	panic("not implemented: GetRun")
-}
-
-func (s *Store) UpdateRunState(_ context.Context, _ uuid.UUID, _ domain.RunState, _ string) error {
-	panic("not implemented: UpdateRunState")
-}
+// --- store.Store method stubs (remaining unimplemented groups) ---
 
 func (s *Store) ListRuns(_ context.Context, _ store.RunFilter) ([]domain.SagaRun, error) {
 	panic("not implemented: ListRuns")
@@ -177,30 +232,6 @@ func (s *Store) CountRuns(_ context.Context, _ store.RunFilter) (int, error) {
 
 func (s *Store) StatsForWorkflow(_ context.Context, _ string) (store.WorkflowStats, error) {
 	panic("not implemented: StatsForWorkflow")
-}
-
-func (s *Store) AppendEvent(_ context.Context, _ domain.SagaRunEvent) error {
-	panic("not implemented: AppendEvent")
-}
-
-func (s *Store) ListEventsByRun(_ context.Context, _ uuid.UUID) ([]domain.SagaRunEvent, error) {
-	panic("not implemented: ListEventsByRun")
-}
-
-func (s *Store) GetEventByID(_ context.Context, _ uuid.UUID) (domain.SagaRunEvent, error) {
-	panic("not implemented: GetEventByID")
-}
-
-func (s *Store) UpsertRuleDefinition(_ context.Context, _ domain.RuleDefinition) (uuid.UUID, error) {
-	panic("not implemented: UpsertRuleDefinition")
-}
-
-func (s *Store) GetPublishedRuleByID(_ context.Context, _ string, _ *uuid.UUID) (domain.RuleDefinition, error) {
-	panic("not implemented: GetPublishedRuleByID")
-}
-
-func (s *Store) UpdateRunVariables(_ context.Context, _ uuid.UUID, _ map[string]any) error {
-	panic("not implemented: UpdateRunVariables")
 }
 
 func (s *Store) SetPausedWithWakeup(_ context.Context, _ uuid.UUID, _ time.Time) error {
