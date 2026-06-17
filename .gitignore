@@ -1,0 +1,28 @@
+# Binaries
+/bin/
+*.exe
+*.test
+*.out
+
+# Go workspace
+vendor/
+
+# CI caches
+.gocache/
+.gopath/
+
+# Editor
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+
+# Coverage
+coverage.*
+
+# Local design notes - never committed
+plan/
