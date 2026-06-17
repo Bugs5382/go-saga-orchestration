@@ -1,0 +1,26 @@
+{
+  "id": "example.sub_saga",
+  "version": 1,
+  "name": "Sub_saga verb example",
+  "description": "Starts a KYC verification child workflow and blocks until it completes.",
+  "start": "run_kyc",
+  "published": true,
+  "steps": [
+    {
+      "id": "run_kyc",
+      "type": "sub_saga",
+      "inputs": {
+        "workflow_id": "kyc_verification",
+        "inputs": {
+          "applicant_id": "APP-9876",
+          "document_type": "passport"
+        }
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

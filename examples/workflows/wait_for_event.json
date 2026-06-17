@@ -1,0 +1,35 @@
+{
+  "id": "example.wait_for_event",
+  "version": 1,
+  "name": "Wait_for_event verb example",
+  "description": "Pauses the saga until a RabbitMQ inventory.updated event arrives for a specific SKU.",
+  "start": "await_inventory_event",
+  "published": true,
+  "steps": [
+    {
+      "id": "await_inventory_event",
+      "type": "wait_for_event",
+      "inputs": {
+        "topic": "inventory.updated",
+        "headers": {
+          "sku": "WIDGET-42",
+          "warehouse": "us-east-1"
+        }
+      },
+      "next": "process_inventory_update"
+    },
+    {
+      "id": "process_inventory_update",
+      "type": "log",
+      "inputs": {
+        "message": "Inventory update event received; recalculating availability",
+        "level": "info"
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

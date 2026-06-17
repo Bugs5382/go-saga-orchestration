@@ -1,0 +1,33 @@
+{
+  "id": "example.map",
+  "version": 1,
+  "name": "Map verb example",
+  "description": "Seeds a list of prices then maps each one to its VAT-inclusive amount.",
+  "start": "seed_prices",
+  "published": true,
+  "steps": [
+    {
+      "id": "seed_prices",
+      "type": "set_var",
+      "inputs": {
+        "out_var": "prices",
+        "value": [100.0, 200.0, 50.0]
+      },
+      "next": "add_vat"
+    },
+    {
+      "id": "add_vat",
+      "type": "map",
+      "inputs": {
+        "list": "prices",
+        "expr": "_ * 1.2",
+        "out_var": "prices_with_vat"
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

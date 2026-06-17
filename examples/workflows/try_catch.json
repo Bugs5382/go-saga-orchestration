@@ -1,0 +1,41 @@
+{
+  "id": "example.try_catch",
+  "version": 1,
+  "name": "Try_catch verb example",
+  "description": "Wraps a risky HTTP call in a try_catch frame; on error routes to the compensate step.",
+  "start": "protect_call",
+  "published": true,
+  "steps": [
+    {
+      "id": "protect_call",
+      "type": "try_catch",
+      "inputs": {
+        "try": ["call_external_api"],
+        "catch": "handle_api_error"
+      },
+      "next": "call_external_api"
+    },
+    {
+      "id": "call_external_api",
+      "type": "log",
+      "inputs": {
+        "message": "Calling external payment gateway",
+        "level": "info"
+      },
+      "next": "end"
+    },
+    {
+      "id": "handle_api_error",
+      "type": "log",
+      "inputs": {
+        "message": "Payment gateway call failed; initiating rollback",
+        "level": "error"
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

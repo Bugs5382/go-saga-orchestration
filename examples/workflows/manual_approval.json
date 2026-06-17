@@ -1,0 +1,36 @@
+{
+  "id": "example.manual_approval",
+  "version": 1,
+  "name": "Manual_approval verb example",
+  "description": "Pauses an expense reimbursement workflow until a manager approves or rejects it.",
+  "start": "request_manager_approval",
+  "published": true,
+  "steps": [
+    {
+      "id": "request_manager_approval",
+      "type": "manual_approval",
+      "inputs": {
+        "assignee": "manager-role",
+        "due_in": "48h",
+        "form_schema": {
+          "type": "object",
+          "properties": {
+            "decision": {
+              "type": "string",
+              "enum": ["approve", "reject"]
+            },
+            "notes": {
+              "type": "string"
+            }
+          },
+          "required": ["decision"]
+        }
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

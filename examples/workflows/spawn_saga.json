@@ -1,0 +1,27 @@
+{
+  "id": "example.spawn_saga",
+  "version": 1,
+  "name": "Spawn_saga verb example",
+  "description": "Fire-and-forgets an audit logging child workflow then continues immediately.",
+  "start": "fire_audit_log",
+  "published": true,
+  "steps": [
+    {
+      "id": "fire_audit_log",
+      "type": "spawn_saga",
+      "inputs": {
+        "workflow_id": "audit_trail_recorder",
+        "inputs": {
+          "action": "order.created",
+          "actor": "system",
+          "resource_id": "ORD-55555"
+        }
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

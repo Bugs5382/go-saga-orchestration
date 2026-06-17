@@ -1,0 +1,27 @@
+{
+  "id": "example.error",
+  "version": 1,
+  "name": "Error verb example",
+  "description": "Validates input and halts the saga with a non-retryable error if invalid.",
+  "start": "check_input",
+  "published": true,
+  "steps": [
+    {
+      "id": "check_input",
+      "type": "noop",
+      "next": "fail_unsupported_region"
+    },
+    {
+      "id": "fail_unsupported_region",
+      "type": "error",
+      "inputs": {
+        "code": "UNSUPPORTED_REGION",
+        "message": "The requested region is not currently supported"
+      }
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

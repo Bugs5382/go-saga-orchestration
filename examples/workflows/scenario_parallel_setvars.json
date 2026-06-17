@@ -1,0 +1,37 @@
+{
+  "id": "scenario.parallel_setvars",
+  "version": 1,
+  "name": "Scenario: parallel fan-out of four set_var verbs, then aggregate",
+  "description": "A parallel step fans out four set_var branches that run as independent child runs. On join (strategy 'all') the engine aggregates each branch's variables into _parallel.<step>.branches. The downstream 'summarize' set_var reads that aggregate via CEL (here, counting the branches).",
+  "start": "fanout",
+  "published": true,
+  "steps": [
+    {
+      "id": "fanout",
+      "type": "parallel",
+      "inputs": {
+        "join_strategy": "all",
+        "branches": [
+          { "type": "set_var", "inputs": { "out_var": "region", "value": "us-east" } },
+          { "type": "set_var", "inputs": { "out_var": "tier", "value": "gold" } },
+          { "type": "set_var", "inputs": { "out_var": "currency", "value": "USD" } },
+          { "type": "set_var", "inputs": { "out_var": "priority", "value": "high" } }
+        ]
+      },
+      "next": "summarize"
+    },
+    {
+      "id": "summarize",
+      "type": "set_var",
+      "inputs": {
+        "out_var": "branch_count",
+        "expr": "size(_parallel.fanout.branches)"
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

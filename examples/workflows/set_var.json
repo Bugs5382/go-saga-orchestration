@@ -1,0 +1,32 @@
+{
+  "id": "example.set_var",
+  "version": 1,
+  "name": "Set_var verb example",
+  "description": "Sets a workflow variable to a literal value, then sets another via a CEL expression.",
+  "start": "init_order_status",
+  "published": true,
+  "steps": [
+    {
+      "id": "init_order_status",
+      "type": "set_var",
+      "inputs": {
+        "out_var": "order_status",
+        "value": "pending"
+      },
+      "next": "compute_tax"
+    },
+    {
+      "id": "compute_tax",
+      "type": "set_var",
+      "inputs": {
+        "out_var": "tax_amount",
+        "value": 8.5
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

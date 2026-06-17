@@ -1,0 +1,32 @@
+{
+  "id": "example.assert",
+  "version": 1,
+  "name": "Assert verb example",
+  "description": "Seeds an order total then asserts it is within acceptable range before proceeding.",
+  "start": "seed_total",
+  "published": true,
+  "steps": [
+    {
+      "id": "seed_total",
+      "type": "set_var",
+      "inputs": {
+        "out_var": "order_total",
+        "value": 350.0
+      },
+      "next": "assert_reasonable"
+    },
+    {
+      "id": "assert_reasonable",
+      "type": "assert",
+      "inputs": {
+        "expr": "order_total > 0.0 && order_total < 10000.0",
+        "code": "ORDER_TOTAL_OUT_OF_RANGE"
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

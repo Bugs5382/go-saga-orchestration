@@ -1,0 +1,19 @@
+{
+  "id": "example.noop",
+  "version": 1,
+  "name": "Noop verb example",
+  "description": "Uses a noop step as a placeholder junction between two real steps.",
+  "start": "placeholder",
+  "published": true,
+  "steps": [
+    {
+      "id": "placeholder",
+      "type": "noop",
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

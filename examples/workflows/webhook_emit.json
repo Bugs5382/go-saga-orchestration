@@ -1,0 +1,31 @@
+{
+  "id": "example.webhook_emit",
+  "version": 1,
+  "name": "Webhook_emit verb example",
+  "description": "POSTs a signed webhook notification to a partner system on order completion.",
+  "start": "notify_partner",
+  "published": true,
+  "steps": [
+    {
+      "id": "notify_partner",
+      "type": "webhook_emit",
+      "inputs": {
+        "url": "https://partner.example.com/hooks/order-events",
+        "body": {
+          "event": "order.completed",
+          "order_id": "ORD-12345",
+          "amount": 299.99
+        },
+        "headers": {
+          "X-Source": "saga-engine"
+        },
+        "timeout_s": 15
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

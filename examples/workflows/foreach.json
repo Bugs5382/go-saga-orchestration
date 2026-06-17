@@ -1,0 +1,44 @@
+{
+  "id": "example.foreach",
+  "version": 1,
+  "name": "Foreach verb example",
+  "description": "Seeds a list of recipient IDs then fans out one notification child run per recipient.",
+  "start": "seed_recipients",
+  "published": true,
+  "steps": [
+    {
+      "id": "seed_recipients",
+      "type": "set_var",
+      "inputs": {
+        "out_var": "recipient_ids",
+        "value": ["user-001", "user-002", "user-003"]
+      },
+      "next": "notify_each"
+    },
+    {
+      "id": "notify_each",
+      "type": "foreach",
+      "inputs": {
+        "list": "recipient_ids",
+        "start": "notify_recipient",
+        "body": [
+          {
+            "id": "notify_recipient",
+            "type": "log",
+            "inputs": {
+              "message": "Sending notification to recipient",
+              "level": "info"
+            },
+            "next": "iter_end"
+          },
+          { "id": "iter_end", "type": "end" }
+        ]
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}
