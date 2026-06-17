@@ -15,8 +15,8 @@ require (
 	google.golang.org/protobuf v1.36.7
 )
 
-
 require (
+	github.com/Bugs5382/go-saga-orchestration/clients/go/worker v0.0.0
 	github.com/antlr4-go/antlr/v4 v4.13.0 // indirect
 	github.com/jackc/pgerrcode v0.0.0-20220416144525-469b46aa5efa // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
@@ -34,3 +34,5 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20250818200422-3122310a409c // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250818200422-3122310a409c // indirect
 )
+
+replace github.com/Bugs5382/go-saga-orchestration/clients/go/worker => ./clients/go/worker
