@@ -38,6 +38,11 @@ type Config struct {
 	Server      ServerConfig
 	DatabaseDSN string
 	RabbitMQURL string
+
+	// Store selection.
+	StoreType   string        // "postgres" (default), "redis", "valkey", "memory"
+	RedisURL    string        // required when StoreType is redis or valkey
+	RedisRunTTL time.Duration // terminal-run TTL for the redis backend; 0 disables
 }
 
 // APIConfig holds knobs for the REST API server (cmd/api).
@@ -57,6 +62,7 @@ type ServerConfig struct {
 
 // Load reads env vars and returns Config with defaults.
 func Load() Config {
+	ttl := parseRunTTL(getEnv("REDIS_RUN_TTL", "0s"))
 	return Config{
 		API: APIConfig{
 			Port: getEnv("WORKFLOW_API_PORT", "8080"),
@@ -69,7 +75,22 @@ func Load() Config {
 		},
 		DatabaseDSN: getEnv("DATABASE_DSN", ""),
 		RabbitMQURL: getEnv("RABBITMQ_URL", ""),
+		StoreType:   getEnv("STORE_TYPE", "postgres"),
+		RedisURL:    getEnv("REDIS_URL", ""),
+		RedisRunTTL: ttl,
 	}
+}
+
+// parseRunTTL parses a duration string, returning 0 on empty input or parse error.
+func parseRunTTL(s string) time.Duration {
+	if s == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0
+	}
+	return d
 }
 
 func getEnv(key, fallback string) string {

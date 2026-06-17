@@ -32,12 +32,14 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog/log"
 
 	"github.com/Bugs5382/go-saga-orchestration/api"
 	"github.com/Bugs5382/go-saga-orchestration/internal/config"
 	"github.com/Bugs5382/go-saga-orchestration/internal/logging"
 	"github.com/Bugs5382/go-saga-orchestration/internal/mq"
+	"github.com/Bugs5382/go-saga-orchestration/internal/storefactory"
 	"github.com/Bugs5382/go-saga-orchestration/store/postgres"
 )
 
@@ -54,16 +56,15 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	st, err := postgres.Open(ctx, cfg.DatabaseDSN)
+	st, closeStore, err := storefactory.Open(ctx, cfg)
 	if err != nil {
-		log.Fatal().Err(err).Msg("postgres connect")
+		log.Fatal().Err(err).Msg("store open")
 	}
-	defer st.Close()
+	defer func() { _ = closeStore() }()
 
-	if err := postgres.Migrate(cfg.DatabaseDSN); err != nil {
-		log.Fatal().Err(err).Msg("postgres migrate")
+	if cfg.StoreType == "" || cfg.StoreType == "postgres" {
+		log.Info().Msg("postgres migrations applied")
 	}
-	log.Info().Msg("postgres migrations applied")
 
 	conn, err := mq.Connect(cfg.RabbitMQURL)
 	if err != nil {
@@ -91,7 +92,11 @@ func main() {
 	reg := api.NewRegistryHandler(st)
 	rules := api.NewRulesHandler(st)
 	triggers := api.NewTriggerHandler(st)
-	streamH := api.NewSagaStreamHandler(st, st.Pool())
+	var pgPool *pgxpool.Pool
+	if ps, ok := st.(*postgres.Store); ok {
+		pgPool = ps.Pool()
+	}
+	streamH := api.NewSagaStreamHandler(st, pgPool)
 	workflows := api.NewWorkflowHandler(st)
 	router := api.NewRouter(st, sagas, signals, userTasks, reg, rules, triggers, streamH, workflows)
 	srv := &http.Server{Addr: ":" + cfg.API.Port, Handler: router}
