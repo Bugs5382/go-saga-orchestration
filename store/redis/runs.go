@@ -76,6 +76,7 @@ func (s *Store) UpdateRunState(ctx context.Context, id uuid.UUID, state domain.R
 			if r.AwaitedEventTopic != nil {
 				p.SRem(ctx, s.key("idx", "awaitevent", *r.AwaitedEventTopic), id.String())
 			}
+			s.applyTerminalTTL(ctx, p, id)
 		}
 		return nil
 	})

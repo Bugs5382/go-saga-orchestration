@@ -164,7 +164,7 @@ func (s *Store) CompleteAction(ctx context.Context, runID uuid.UUID, attempt int
 func (s *Store) FailAction(ctx context.Context, runID uuid.UUID, attempt int, code, message string, retryable bool) error {
 	var dispatch string
 	var currentStep string
-	err := s.txRun(ctx, runID, func(r *domain.SagaRun, _ goredis.Pipeliner) error {
+	err := s.txRun(ctx, runID, func(r *domain.SagaRun, p goredis.Pipeliner) error {
 		if r.CurrentAttempt != attempt {
 			return errAbortNoWrite
 		}
@@ -174,6 +174,7 @@ func (s *Store) FailAction(ctx context.Context, runID uuid.UUID, attempt int, co
 		currentStep = r.CurrentStep
 		r.AwaitedActionDispatch = nil
 		r.State = domain.RunStateFailed
+		s.applyTerminalTTL(ctx, p, runID)
 		return nil
 	})
 	if err != nil {
