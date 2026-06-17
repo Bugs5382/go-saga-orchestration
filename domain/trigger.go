@@ -1,7 +1,4 @@
-// Package sagaorchestration is the module root placeholder.
-//
-// Replace this scaffold with the package's real implementation.
-package sagaorchestration
+package domain
 
 /*
 MIT License
@@ -25,3 +22,38 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
+
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
+
+// TriggerType is the dispatch key for matching incoming signals (events,
+// cron ticks, etc.) to workflows.
+type TriggerType string
+
+// The TriggerType constants enumerate the supported trigger dispatch keys.
+const (
+	// TriggerRecordTransition fires when a record state-transition event
+	// arrives matching the trigger's config.record_type, config.from_state,
+	// config.to_state.
+	TriggerRecordTransition TriggerType = "record_transition"
+)
+
+// SagaTrigger persists the binding between an external signal and a
+// workflow definition. Created via REST or seeded via migration.
+type SagaTrigger struct {
+	ID          uuid.UUID
+	TriggerType TriggerType
+	WorkflowID  string
+	Version     int
+	// Config is shape-by-trigger-type. For TriggerRecordTransition:
+	//   { "record_type": "order", "from_state": "created",
+	//     "to_state": "pending_review", "input_mapping": {...} }
+	Config    map[string]any
+	Enabled   bool
+	TenantID  *uuid.UUID
+	CreatedAt time.Time
+	CreatedBy string
+}
