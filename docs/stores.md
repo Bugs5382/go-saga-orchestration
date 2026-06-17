@@ -47,7 +47,7 @@ Redis and Valkey keep all data in RAM (with optional disk persistence). The size
 
 ### Run retention with `REDIS_RUN_TTL`
 
-By default, terminal-run keys are kept forever. Set `REDIS_RUN_TTL` to a Go duration (e.g. `168h` for one week) to have the engine auto-expire all keys for a run once it finishes. This bounds keyspace growth at the cost of losing historical run data after the TTL expires.
+By default, terminal-run keys are kept forever. Set `REDIS_RUN_TTL` to a Go duration (e.g. `168h` for one week) to have the engine auto-expire all keys for a run once it finishes. This bounds keyspace growth at the cost of losing historical run data after the TTL expires. Note that `REDIS_RUN_TTL` expires the run blob, event list, signals list, and user-task index keys, but the run-membership indexes (`idx:runs`, `idx:runs:byworkflow`, `idx:children`) are not expired and are pruned only by completion-path cleanup; with TTL enabled those index sets retain dangling member IDs over time (harmless: reads use MGET and skip missing keys) but will grow without bound if runs are not manually cleaned up.
 
 ---
 

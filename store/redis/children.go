@@ -66,8 +66,6 @@ func (s *Store) SpawnChildRunAt(ctx context.Context, parentID uuid.UUID, parentS
 	child.ParentStepID = &psid
 	child.ParentBranchID = &bid
 
-	var resolvedDefID uuid.UUID
-
 	for i := 0; i < txMaxRetries; i++ {
 		err = s.rdb.Watch(ctx, func(tx *goredis.Tx) error {
 			// Read the def:byname list inside the WATCH so a concurrent upsert
@@ -88,7 +86,6 @@ func (s *Store) SpawnChildRunAt(ctx context.Context, parentID uuid.UUID, parentS
 				defStoredID = newDefID
 				needDef = true
 			}
-			resolvedDefID = defStoredID
 
 			child.DefinitionID = defStoredID
 			childB, err := json.Marshal(child)
@@ -119,7 +116,6 @@ func (s *Store) SpawnChildRunAt(ctx context.Context, parentID uuid.UUID, parentS
 		if err != nil {
 			return uuid.Nil, err
 		}
-		_ = resolvedDefID
 		return child.ID, nil
 	}
 	return uuid.Nil, errors.New("redis: tx retry budget exhausted for child spawn under parent " + parentID.String())
