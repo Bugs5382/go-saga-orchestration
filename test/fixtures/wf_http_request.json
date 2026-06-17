@@ -1,0 +1,11 @@
+{
+  "id": "wf_http_request",
+  "version": 1,
+  "name": "single http_request step",
+  "start": "h",
+  "steps": [
+    { "id": "h", "type": "http_request", "inputs": {"url":"__SERVER_URL__","out_var":"r"}, "next": "end" },
+    { "id": "end", "type": "end" }
+  ],
+  "published": true
+}

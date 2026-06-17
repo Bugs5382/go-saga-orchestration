@@ -1,0 +1,12 @@
+{
+  "id": "wf_action_dispatch",
+  "version": 1,
+  "name": "action dispatch demo",
+  "start": "a",
+  "steps": [
+    { "id": "a", "type": "action", "action": "test.echo",
+      "inputs": {"hello": "world"}, "next": "end" },
+    { "id": "end", "type": "end" }
+  ],
+  "published": true
+}

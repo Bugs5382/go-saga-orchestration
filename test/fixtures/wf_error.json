@@ -1,0 +1,11 @@
+{
+  "id": "wf_error",
+  "version": 1,
+  "name": "error verb halts saga",
+  "start": "s1",
+  "steps": [
+    { "id": "s1", "type": "error", "inputs": {"code":"policy_violation","message":"blocked"} },
+    { "id": "end", "type": "end" }
+  ],
+  "published": true
+}

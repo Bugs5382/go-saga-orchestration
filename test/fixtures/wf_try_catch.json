@@ -1,0 +1,13 @@
+{
+  "id": "wf_try_catch",
+  "version": 1,
+  "name": "try_catch demo — body errors, catch sets var",
+  "start": "t1",
+  "steps": [
+    { "id": "t1",    "type": "try_catch", "inputs": {"try": ["bad"], "catch": "h"}, "next": "bad" },
+    { "id": "bad",   "type": "error",     "inputs": {"code": "bad_thing", "message": "boom"}, "next": "after" },
+    { "id": "h",     "type": "set_var",   "inputs": {"out_var": "caught", "value": true}, "next": "after" },
+    { "id": "after", "type": "end" }
+  ],
+  "published": true
+}

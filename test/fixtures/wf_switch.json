@@ -1,0 +1,15 @@
+{
+  "id": "wf_switch",
+  "version": 1,
+  "name": "switch verb routes on tier variable",
+  "start": "init",
+  "steps": [
+    { "id": "init",  "type": "set_var", "inputs": {"out_var": "tier", "value": "b"}, "next": "route" },
+    { "id": "route", "type": "switch",  "inputs": {"expr": "tier"},
+      "branches": { "a": {"next": "sa"}, "b": {"next": "sb"} } },
+    { "id": "sa", "type": "set_var", "inputs": {"out_var": "path", "value": "branch_a"}, "next": "end" },
+    { "id": "sb", "type": "set_var", "inputs": {"out_var": "path", "value": "branch_b"}, "next": "end" },
+    { "id": "end", "type": "end" }
+  ],
+  "published": true
+}

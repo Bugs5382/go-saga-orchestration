@@ -1,0 +1,11 @@
+{
+  "id": "wf_wait_until",
+  "version": 1,
+  "name": "single wait_until step",
+  "start": "w",
+  "steps": [
+    { "id": "w", "type": "wait_until", "inputs": {"timestamp":"__DEADLINE__"}, "next": "end" },
+    { "id": "end", "type": "end" }
+  ],
+  "published": true
+}

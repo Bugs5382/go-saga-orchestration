@@ -1,0 +1,21 @@
+{
+  "id": "wf_wait_for_signal_timeout_branch",
+  "version": 1,
+  "name": "wait_for_signal with timeout branch",
+  "start": "wait",
+  "steps": [
+    {
+      "id": "wait",
+      "type": "wait_for_signal",
+      "inputs": {"name": "go", "timeout_s": 5.0},
+      "next": "normal",
+      "branches": {
+        "timeout": {"next": "escalate"}
+      }
+    },
+    { "id": "normal",   "type": "set_var", "inputs": {"out_var": "outcome", "value": "normal"},   "next": "end" },
+    { "id": "escalate", "type": "set_var", "inputs": {"out_var": "outcome", "value": "escalate"}, "next": "end" },
+    { "id": "end", "type": "end" }
+  ],
+  "published": true
+}

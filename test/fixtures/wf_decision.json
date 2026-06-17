@@ -1,0 +1,15 @@
+{
+  "id": "wf_decision",
+  "version": 1,
+  "name": "decision step picks branch",
+  "start": "s1",
+  "steps": [
+    { "id": "s1", "type": "set_var", "inputs": {"out_var":"priority","value":"p1"}, "next": "d" },
+    { "id": "d",  "type": "decision", "inputs": {"rule_id":"triage"},
+      "branches": { "high": {"next":"sH"}, "low": {"next":"sL"} } },
+    { "id": "sH", "type": "set_var", "inputs": {"out_var":"path","value":"high"}, "next": "end" },
+    { "id": "sL", "type": "set_var", "inputs": {"out_var":"path","value":"low"},  "next": "end" },
+    { "id": "end", "type": "end" }
+  ],
+  "published": true
+}

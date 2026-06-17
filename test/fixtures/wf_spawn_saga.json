@@ -1,0 +1,12 @@
+{
+  "id": "wf_spawn_saga",
+  "version": 1,
+  "name": "spawn_saga parent",
+  "start": "sp",
+  "steps": [
+    { "id": "sp",    "type": "spawn_saga", "inputs": {"workflow_id": "wf_sub_saga_child"}, "next": "after" },
+    { "id": "after", "type": "set_var",    "inputs": {"out_var": "continued", "value": true}, "next": "end" },
+    { "id": "end",   "type": "end" }
+  ],
+  "published": true
+}

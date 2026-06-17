@@ -1,0 +1,12 @@
+{
+  "id": "wf_transform",
+  "version": 1,
+  "name": "transform after a seeded set_var",
+  "start": "s1",
+  "steps": [
+    { "id": "s1", "type": "set_var", "inputs": {"out_var":"x","value":10}, "next": "s2" },
+    { "id": "s2", "type": "transform", "inputs": {"expr":"x * x","out_var":"x_sq"}, "next": "end" },
+    { "id": "end", "type": "end" }
+  ],
+  "published": true
+}

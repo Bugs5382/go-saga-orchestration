@@ -1,0 +1,16 @@
+{
+  "id": "wf_license_gate_parallel",
+  "version": 1,
+  "name": "parallel gate demo",
+  "start": "p",
+  "steps": [
+    { "id": "p", "type": "parallel", "inputs": {
+        "branches": [
+          { "start": "e1", "steps": [{"id":"e1","type":"end"}] },
+          { "start": "e2", "steps": [{"id":"e2","type":"end"}] }
+        ]
+      }, "next": "end" },
+    { "id": "end", "type": "end" }
+  ],
+  "published": true
+}

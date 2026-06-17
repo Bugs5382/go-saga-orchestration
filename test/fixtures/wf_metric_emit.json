@@ -1,0 +1,11 @@
+{
+  "id": "wf_metric_emit",
+  "version": 1,
+  "name": "single metric_emit step",
+  "start": "m",
+  "steps": [
+    { "id": "m", "type": "metric_emit", "inputs": {"name":"saga.test","value":1,"labels":{"k":"v"}}, "next": "end" },
+    { "id": "end", "type": "end" }
+  ],
+  "published": true
+}

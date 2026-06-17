@@ -1,0 +1,26 @@
+{
+  "id": "wf_foreach",
+  "version": 1,
+  "name": "foreach demo",
+  "start": "seed",
+  "steps": [
+    {
+      "id": "seed",
+      "type": "set_var",
+      "inputs": { "out_var": "xs", "value": [1, 2, 3] },
+      "next": "fe"
+    },
+    {
+      "id": "fe",
+      "type": "foreach",
+      "inputs": {
+        "list": "xs",
+        "start": "i_end",
+        "body": [{ "id": "i_end", "type": "end" }]
+      },
+      "next": "end"
+    },
+    { "id": "end", "type": "end" }
+  ],
+  "published": true
+}

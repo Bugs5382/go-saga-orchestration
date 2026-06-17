@@ -1,0 +1,11 @@
+{
+  "id": "wf_log",
+  "version": 1,
+  "name": "single log step",
+  "start": "l",
+  "steps": [
+    { "id": "l", "type": "log", "inputs": {"message":"hello world","level":"info"}, "next": "end" },
+    { "id": "end", "type": "end" }
+  ],
+  "published": true
+}

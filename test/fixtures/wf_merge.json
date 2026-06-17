@@ -1,0 +1,11 @@
+{
+  "id": "wf_merge",
+  "version": 1,
+  "name": "merge into ctx",
+  "start": "s1",
+  "steps": [
+    { "id": "s1", "type": "merge", "inputs": {"from":"{'meta':{'src':'demo'}}","into":"ctx"}, "next": "end" },
+    { "id": "end", "type": "end" }
+  ],
+  "published": true
+}

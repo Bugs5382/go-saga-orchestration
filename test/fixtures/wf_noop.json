@@ -1,0 +1,11 @@
+{
+  "id": "wf_noop",
+  "version": 1,
+  "name": "Single noop step then end",
+  "start": "n",
+  "steps": [
+    { "id": "n", "type": "noop", "next": "end" },
+    { "id": "end", "type": "end" }
+  ],
+  "published": true
+}

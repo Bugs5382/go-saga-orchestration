@@ -1,0 +1,12 @@
+{
+  "id": "wf_assert",
+  "version": 1,
+  "name": "successful assert then end",
+  "start": "s1",
+  "steps": [
+    { "id": "s1", "type": "set_var", "inputs": {"out_var":"x","value":5}, "next": "s2" },
+    { "id": "s2", "type": "assert", "inputs": {"expr":"x > 0.0"}, "next": "end" },
+    { "id": "end", "type": "end" }
+  ],
+  "published": true
+}
