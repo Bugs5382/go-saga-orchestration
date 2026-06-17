@@ -78,9 +78,18 @@ func TestLoadStoreType(t *testing.T) {
 }
 
 func TestLoadStoreTypeDefaults(t *testing.T) {
-	_ = os.Unsetenv("STORE_TYPE")
-	_ = os.Unsetenv("REDIS_URL")
-	_ = os.Unsetenv("REDIS_RUN_TTL")
+	for _, key := range []string{"STORE_TYPE", "REDIS_URL", "REDIS_RUN_TTL"} {
+		prev, had := os.LookupEnv(key)
+		_ = os.Unsetenv(key)
+		key, prev, had := key, prev, had // capture
+		t.Cleanup(func() {
+			if had {
+				_ = os.Setenv(key, prev)
+			} else {
+				_ = os.Unsetenv(key)
+			}
+		})
+	}
 
 	cfg := Load()
 	if cfg.StoreType != "postgres" {
