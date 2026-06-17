@@ -1,0 +1,877 @@
+openapi: 3.0.3
+info:
+  title: Saga Orchestration Engine REST API
+  description: >-
+    HTTP/REST API for the go-saga-orchestration engine (the `api` binary, served on
+    port 8080 by default). Covers health probes, saga lifecycle (start, signal,
+    user-task submit, live stream, inspect), the action registry, rule
+    evaluation, trigger CRUD, and workflow stats.
+
+
+    All endpoints emit a structured JSON error envelope `{ "error": code,
+    "message": msg }` on error. Error `code` is a stable, machine-readable
+    string (e.g. `bad_request`, `not_found`, `internal`). On 5xx the real
+    error is logged server-side; clients receive only the generic message.
+  version: "1.0.0"
+servers:
+  - url: http://localhost:8080
+    description: Local api binary (env WORKFLOW_API_PORT, default 8080)
+
+paths:
+  /health/live:
+    get:
+      summary: Liveness probe
+      description: Returns 200 if the process is running.
+      operationId: healthLive
+      tags: [health]
+      responses:
+        "200":
+          description: Process is live.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+              example: { status: live }
+
+  /health/ready:
+    get:
+      summary: Readiness probe
+      description: Returns 200 once the service is ready to serve. v1 is always ready after process start.
+      operationId: healthReady
+      tags: [health]
+      responses:
+        "200":
+          description: Service is ready.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+              example: { status: ready }
+
+  /api/v1/sagas:
+    get:
+      summary: List saga runs
+      description: Returns a paginated, filterable list of saga runs.
+      operationId: listSagas
+      tags: [sagas]
+      parameters:
+        - name: limit
+          in: query
+          description: Page size, 1–500. Default 50.
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+        - name: offset
+          in: query
+          description: Number of rows to skip, >= 0. Default 0.
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: workflow_id
+          in: query
+          schema: { type: string }
+        - name: state
+          in: query
+          schema: { $ref: "#/components/schemas/RunState" }
+        - name: trigger_type
+          in: query
+          schema: { type: string }
+        - name: since
+          in: query
+          description: RFC3339 timestamp; only runs started at/after this time.
+          schema: { type: string, format: date-time }
+        - name: has_error
+          in: query
+          schema: { type: boolean }
+        - name: requires_review
+          in: query
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: A page of saga runs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SagaListResponse"
+        "400":
+          $ref: "#/components/responses/JSONBadRequest"
+        "500":
+          $ref: "#/components/responses/JSONInternalError"
+
+  /api/v1/sagas/start:
+    post:
+      summary: Start a saga run
+      description: >-
+        Resolves the published workflow definition, inserts a run row,
+        publishes saga.advance, and returns 202 with the new run ID.
+      operationId: startSaga
+      tags: [sagas]
+      parameters:
+        - $ref: "#/components/parameters/FeatureOverrideHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartSagaRequest"
+            example:
+              workflow_id: cab_approval_v1
+              version: latest
+              inputs: { change_id: "CHG-123" }
+              dry_run: false
+      responses:
+        "202":
+          description: Run accepted and saga.advance published.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StartSagaResponse"
+        "400":
+          $ref: "#/components/responses/JSONBadRequest"
+        "404":
+          description: Workflow definition not found. `error` = "workflow_not_found".
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "500":
+          description: Internal error or publish failure (`error` = "internal" or "publish_failed").
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /api/v1/sagas/{id}:
+    get:
+      summary: Get a saga run
+      operationId: getSaga
+      tags: [sagas]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The saga run.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SagaRun" }
+        "400":
+          $ref: "#/components/responses/JSONBadRequest"
+        "404":
+          description: Run not found. `error` = "saga_not_found".
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "500":
+          $ref: "#/components/responses/JSONInternalError"
+
+  /api/v1/sagas/{run_id}/signal/{name}:
+    post:
+      summary: Deliver an external signal to a saga
+      description: >-
+        Records the signal and, if the run is paused awaiting this signal name,
+        publishes saga.advance.
+      operationId: postSignal
+      tags: [sagas]
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: name
+          in: path
+          required: true
+          description: Signal name.
+          schema: { type: string }
+      requestBody:
+        required: false
+        description: Optional payload. An empty/absent body is tolerated.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignalRequest"
+            example:
+              payload: { approved: true }
+      responses:
+        "202":
+          description: Signal recorded and matched a paused saga (advance published). No body.
+        "409":
+          description: Signal recorded but the run was not paused-and-awaiting this name.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "400":
+          $ref: "#/components/responses/JSONBadRequest"
+        "404":
+          $ref: "#/components/responses/JSONNotFound"
+        "500":
+          $ref: "#/components/responses/JSONInternalError"
+
+  /api/v1/sagas/{run_id}/user_task/{task_id}/submit:
+    post:
+      summary: Submit a user task result
+      description: >-
+        Persists the task submission, appends a `user_task.{task_id}.submitted`
+        signal carrying the result, and advances the saga if it was awaiting it.
+      operationId: submitUserTask
+      tags: [sagas]
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserTaskSubmitRequest"
+            example:
+              submitted_by: alice@example.com
+              result: { decision: approve, comment: "LGTM" }
+      responses:
+        "202":
+          description: Submission accepted. No body.
+        "400":
+          $ref: "#/components/responses/JSONBadRequest"
+        "404":
+          $ref: "#/components/responses/JSONNotFound"
+        "500":
+          $ref: "#/components/responses/JSONInternalError"
+
+  /api/v1/sagas/{run_id}/stream:
+    get:
+      summary: Live run inspector stream (WebSocket)
+      description: >-
+        Upgrades the connection to a WebSocket. On connect the server sends the
+        current run snapshot as a `{ "type": "run", "data": <SagaRun> }` frame,
+        then every existing event as `{ "type": "event", "data": <SagaRunEvent> }`
+        frames, then tails new events live. Requires the standard WebSocket
+        upgrade headers (Connection: Upgrade, Upgrade: websocket, etc.).
+        Validation errors before the upgrade use the standard JSON error envelope.
+      operationId: streamSaga
+      tags: [sagas]
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: Connection
+          in: header
+          required: true
+          schema: { type: string, example: Upgrade }
+        - name: Upgrade
+          in: header
+          required: true
+          schema: { type: string, example: websocket }
+      responses:
+        "101":
+          description: >-
+            Switching Protocols — WebSocket established. Subsequent messages are
+            JSON StreamFrame objects (see StreamFrame schema).
+        "400":
+          $ref: "#/components/responses/JSONBadRequest"
+        "404":
+          $ref: "#/components/responses/JSONNotFound"
+        "500":
+          $ref: "#/components/responses/JSONInternalError"
+
+  /api/v1/registry/register:
+    post:
+      summary: Register a service's action declarations
+      description: >-
+        Services call this on startup to register/refresh their actions.
+        Idempotent — upserts each action by (service, action_name, version).
+      operationId: registerActions
+      tags: [registry]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+            example:
+              service: example
+              service_version: "0.18.2"
+              actions:
+                - action_name: set_state
+                  version: 1
+                  category: record_lifecycle
+                  compensable: true
+                  input_schema: {}
+                  output_schema: {}
+      responses:
+        "200":
+          description: Actions registered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterResponse"
+        "400":
+          $ref: "#/components/responses/JSONBadRequest"
+        "500":
+          $ref: "#/components/responses/JSONInternalError"
+
+  /api/v1/registry/actions:
+    get:
+      summary: List registered actions
+      operationId: listActions
+      tags: [registry]
+      parameters:
+        - name: service
+          in: query
+          schema: { type: string }
+        - name: category
+          in: query
+          schema: { type: string }
+        - name: search
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: The matching actions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActionListResponse"
+        "500":
+          $ref: "#/components/responses/JSONInternalError"
+
+  /api/v1/rules/{rule_id}/evaluate:
+    post:
+      summary: Evaluate a rule against inputs
+      description: >-
+        Loads the published rule by ID and evaluates it (decision_table /
+        first-hit). Returns the output map plus a per-row audit trail.
+      operationId: evaluateRule
+      tags: [rules]
+      parameters:
+        - name: rule_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RuleEvaluateRequest"
+            example:
+              inputs: { priority: p1 }
+      responses:
+        "200":
+          description: Rule evaluated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuleEvaluateResponse"
+        "400":
+          $ref: "#/components/responses/JSONBadRequest"
+        "404":
+          $ref: "#/components/responses/JSONNotFound"
+        "422":
+          $ref: "#/components/responses/JSONUnprocessable"
+        "500":
+          $ref: "#/components/responses/JSONInternalError"
+
+  /api/v1/triggers:
+    post:
+      summary: Create a saga trigger
+      operationId: createTrigger
+      tags: [triggers]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TriggerCreateRequest"
+            example:
+              trigger_type: record_transition
+              workflow_id: cab_approval_v1
+              version: 1
+              config:
+                record_type: change
+                from_state: scheduled
+                to_state: pending_cab
+                input_mapping: { change_id: "$.record_id" }
+              enabled: true
+              created_by: admin
+      responses:
+        "201":
+          description: Trigger created. Body is the persisted trigger (note PascalCase field names).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SagaTrigger" }
+        "400":
+          $ref: "#/components/responses/JSONBadRequest"
+        "422":
+          description: Type-specific config validation failed. `error` = "invalid_config".
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "500":
+          $ref: "#/components/responses/JSONInternalError"
+    get:
+      summary: List saga triggers
+      operationId: listTriggers
+      tags: [triggers]
+      parameters:
+        - name: type
+          in: query
+          description: Filter by trigger type.
+          schema: { type: string }
+        - name: enabled
+          in: query
+          description: Filter by enabled flag. Accepts true/false/1/0.
+          schema: { type: string, enum: ["true", "false", "1", "0"] }
+      responses:
+        "200":
+          description: The matching triggers.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TriggerListResponse"
+        "500":
+          $ref: "#/components/responses/JSONInternalError"
+
+  /api/v1/triggers/{id}:
+    get:
+      summary: Get a saga trigger
+      operationId: getTrigger
+      tags: [triggers]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The trigger.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SagaTrigger" }
+        "400":
+          $ref: "#/components/responses/JSONBadRequest"
+        "404":
+          description: Trigger not found. `error` = "trigger_not_found".
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "500":
+          $ref: "#/components/responses/JSONInternalError"
+    delete:
+      summary: Delete a saga trigger
+      operationId: deleteTrigger
+      tags: [triggers]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204":
+          description: Trigger deleted. No body.
+        "400":
+          $ref: "#/components/responses/JSONBadRequest"
+        "404":
+          description: Trigger not found. `error` = "trigger_not_found".
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "500":
+          $ref: "#/components/responses/JSONInternalError"
+
+  /api/v1/workflows/{wf_id}/stats:
+    get:
+      summary: Get aggregate stats for a workflow
+      operationId: workflowStats
+      tags: [workflows]
+      parameters:
+        - name: wf_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Aggregate metrics for the workflow.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkflowStats" }
+        "400":
+          $ref: "#/components/responses/JSONBadRequest"
+        "500":
+          $ref: "#/components/responses/JSONInternalError"
+
+components:
+  parameters:
+    FeatureOverrideHeader:
+      name: X-Feature-Override
+      in: header
+      required: false
+      description: >-
+        Optional per-request override of license feature flags, valid in any
+        environment (standalone, on-prem, dev, QA). Comma-separated
+        `feature=value` pairs, e.g. "wf.parallel=on,wf.timers=off". Values
+        on/true/1 => true; off/false/0 => false; other values are ignored.
+      schema: { type: string }
+
+  responses:
+    JSONBadRequest:
+      description: Bad request. `error` = "bad_request".
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    JSONInternalError:
+      description: Internal error. `error` = "internal".
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    JSONNotFound:
+      description: Not found. `error` = "not_found".
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    JSONUnprocessable:
+      description: Unprocessable. `error` = "unprocessable".
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  schemas:
+    StatusResponse:
+      type: object
+      properties:
+        status: { type: string }
+      required: [status]
+
+    ErrorResponse:
+      description: Structured JSON error envelope used by saga/trigger/workflow endpoints.
+      type: object
+      properties:
+        error:
+          type: string
+          description: Machine-readable error code (e.g. bad_request, saga_not_found, internal).
+        message:
+          type: string
+          description: Human-readable detail.
+      required: [error, message]
+
+    RunState:
+      type: string
+      enum: [pending, running, paused, compensating, succeeded, failed, cancelled]
+
+    StartSagaRequest:
+      type: object
+      properties:
+        workflow_id: { type: string }
+        version:
+          type: string
+          description: '"latest" or a specific version. Optional.'
+        inputs:
+          type: object
+          additionalProperties: true
+        tenant_id:
+          type: string
+          format: uuid
+          nullable: true
+        dry_run: { type: boolean }
+      required: [workflow_id]
+
+    StartSagaResponse:
+      type: object
+      properties:
+        saga_run_id: { type: string, format: uuid }
+      required: [saga_run_id]
+
+    SagaListResponse:
+      type: object
+      properties:
+        sagas:
+          type: array
+          items: { $ref: "#/components/schemas/SagaRun" }
+        total: { type: integer }
+        limit: { type: integer }
+        offset: { type: integer }
+      required: [sagas, total, limit, offset]
+
+    SagaRun:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        workflow_id: { type: string }
+        definition_id: { type: string, format: uuid }
+        tenant_id: { type: string, format: uuid, nullable: true }
+        state: { $ref: "#/components/schemas/RunState" }
+        current_step: { type: string }
+        inputs:
+          type: object
+          additionalProperties: true
+        variables:
+          type: object
+          additionalProperties: true
+        started_at: { type: string, format: date-time }
+        last_event_at: { type: string, format: date-time }
+        terminal_at: { type: string, format: date-time, nullable: true }
+        requires_manual_review: { type: boolean }
+        trigger_id: { type: string, format: uuid, nullable: true }
+        parent_run_id: { type: string, format: uuid, nullable: true }
+        parent_step_id: { type: string, nullable: true }
+        parent_branch_id: { type: string, nullable: true }
+        try_catch_stack:
+          type: array
+          items: { $ref: "#/components/schemas/TryCatchFrame" }
+        dry_run: { type: boolean }
+        wakeup_at: { type: string, format: date-time, nullable: true }
+        awaited_signal: { type: string, nullable: true }
+        awaited_event_topic: { type: string, nullable: true }
+        awaited_event_headers:
+          type: object
+          additionalProperties: { type: string }
+          nullable: true
+        feature_overrides:
+          type: object
+          additionalProperties: { type: boolean }
+          nullable: true
+        awaited_action_dispatch: { type: string, nullable: true }
+        current_attempt: { type: integer }
+      required:
+        - id
+        - workflow_id
+        - definition_id
+        - state
+        - inputs
+        - variables
+        - started_at
+        - last_event_at
+        - requires_manual_review
+
+    TryCatchFrame:
+      type: object
+      properties:
+        step_id: { type: string }
+        catch_step: { type: string }
+      required: [step_id, catch_step]
+
+    SagaRunEvent:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        run_id: { type: string, format: uuid }
+        step_id: { type: string }
+        attempt: { type: integer }
+        event_type:
+          type: string
+          description: >-
+            One of: saga.started, step.dispatched, step.started, step.succeeded,
+            step.failed, step.skipped, step.paused, run.succeeded, run.failed,
+            run.cancelled, compensation.started, log, metric, rule.evaluated,
+            license.gate.rejected.
+        from_state: { type: string }
+        to_state: { type: string }
+        actor: { type: string }
+        metadata:
+          type: object
+          additionalProperties: true
+        recorded_at: { type: string, format: date-time }
+      required: [id, run_id, attempt, event_type, actor, recorded_at]
+
+    SignalRequest:
+      type: object
+      properties:
+        payload:
+          type: object
+          additionalProperties: true
+      additionalProperties: false
+
+    UserTaskSubmitRequest:
+      type: object
+      properties:
+        submitted_by: { type: string }
+        result:
+          type: object
+          additionalProperties: true
+      required: [submitted_by]
+
+    StreamFrame:
+      description: >-
+        JSON envelope sent over the WebSocket stream. `type` is "run" for the
+        initial snapshot, "event" for each audit event.
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [run, event]
+        data:
+          oneOf:
+            - $ref: "#/components/schemas/SagaRun"
+            - $ref: "#/components/schemas/SagaRunEvent"
+      required: [type, data]
+
+    RegisterRequest:
+      type: object
+      properties:
+        service: { type: string }
+        service_version: { type: string }
+        actions:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/ActionRegistration" }
+      required: [service, actions]
+
+    RegisterResponse:
+      type: object
+      properties:
+        service: { type: string }
+        service_version: { type: string }
+        registered: { type: integer }
+      required: [service, registered]
+
+    ActionListResponse:
+      type: object
+      properties:
+        actions:
+          type: array
+          items: { $ref: "#/components/schemas/ActionRegistration" }
+      required: [actions]
+
+    ActionRegistration:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        service: { type: string }
+        action_name: { type: string }
+        version: { type: integer, minimum: 1 }
+        description: { type: string }
+        category: { type: string }
+        compensable: { type: boolean }
+        input_schema:
+          type: object
+          additionalProperties: true
+        output_schema:
+          type: object
+          additionalProperties: true
+        error_codes:
+          type: array
+          items: { type: string }
+        default_retry:
+          allOf:
+            - $ref: "#/components/schemas/RetryPolicy"
+          nullable: true
+        default_timeout_ms: { type: integer }
+        deprecated: { type: boolean }
+        registered_at: { type: string, format: date-time }
+        service_version: { type: string }
+        dry_run_supported: { type: boolean }
+        license_group: { type: string }
+      required:
+        - action_name
+        - version
+        - compensable
+        - input_schema
+        - output_schema
+        - deprecated
+        - registered_at
+        - dry_run_supported
+
+    RetryPolicy:
+      type: object
+      properties:
+        max_attempts: { type: integer }
+        initial_backoff_ms: { type: integer }
+        max_backoff_ms: { type: integer }
+        multiplier: { type: number, format: double }
+        jitter: { type: boolean }
+      required: [max_attempts, initial_backoff_ms]
+
+    RuleEvaluateRequest:
+      type: object
+      properties:
+        inputs:
+          type: object
+          additionalProperties: true
+        tenant_id:
+          type: string
+          nullable: true
+      required: [inputs]
+
+    RuleEvaluateResponse:
+      type: object
+      properties:
+        output:
+          type: object
+          additionalProperties: true
+        audit:
+          type: array
+          items: { $ref: "#/components/schemas/EvaluatedRow" }
+      required: [output, audit]
+
+    EvaluatedRow:
+      type: object
+      properties:
+        index: { type: integer }
+        when: { type: string }
+        matched: { type: boolean }
+      required: [index, when, matched]
+
+    TriggerCreateRequest:
+      type: object
+      properties:
+        trigger_type: { type: string }
+        workflow_id: { type: string }
+        version: { type: integer, minimum: 1 }
+        config:
+          type: object
+          additionalProperties: true
+          description: >-
+            Shape depends on trigger_type. For "record_transition" the keys
+            record_type, from_state, to_state are required non-empty strings.
+        enabled: { type: boolean }
+        tenant_id:
+          type: string
+          nullable: true
+        created_by: { type: string }
+      required: [trigger_type, workflow_id, version, config, created_by]
+
+    SagaTrigger:
+      description: >-
+        Persisted trigger. The Go domain type carries no JSON tags, so the wire
+        representation uses Go field names (PascalCase), as shown here.
+      type: object
+      properties:
+        ID: { type: string, format: uuid }
+        TriggerType: { type: string }
+        WorkflowID: { type: string }
+        Version: { type: integer }
+        Config:
+          type: object
+          additionalProperties: true
+        Enabled: { type: boolean }
+        TenantID: { type: string, format: uuid, nullable: true }
+        CreatedAt: { type: string, format: date-time }
+        CreatedBy: { type: string }
+      required: [ID, TriggerType, WorkflowID, Version, Config, Enabled, CreatedAt, CreatedBy]
+
+    TriggerListResponse:
+      type: object
+      properties:
+        triggers:
+          type: array
+          items: { $ref: "#/components/schemas/SagaTrigger" }
+      required: [triggers]
+
+    WorkflowStats:
+      type: object
+      properties:
+        workflow_id: { type: string }
+        success_rate_24h:
+          type: number
+          format: double
+          nullable: true
+          description: Null when there were no runs in the last 24h.
+        last_run_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Null when there have been no runs at all.
+        in_flight: { type: integer }
+      required: [workflow_id, in_flight]
