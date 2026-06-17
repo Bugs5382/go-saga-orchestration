@@ -27,6 +27,7 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -137,18 +138,11 @@ func (s *Store) WakeFromExternal(ctx context.Context, runID uuid.UUID) error {
 // FindRunsByDueWakeup returns up to limit run IDs whose wakeup_at is at or
 // before now via ZRANGEBYSCORE idx:wakeup -inf now.UnixNano().
 func (s *Store) FindRunsByDueWakeup(ctx context.Context, now time.Time, limit int) ([]uuid.UUID, error) {
-	opt := &goredis.ZRangeBy{
-		Min:    "-inf",
-		Max:    "+inf",
-		Offset: 0,
-		Count:  int64(limit),
-	}
-	// Use ZRangeByScoreWithScores to get members only within the score range.
 	members, err := s.rdb.ZRangeByScore(ctx, s.key("idx", "wakeup"), &goredis.ZRangeBy{
 		Min:    "-inf",
-		Max:    str(now.UnixNano()),
-		Offset: opt.Offset,
-		Count:  opt.Count,
+		Max:    strconv.FormatInt(now.UnixNano(), 10),
+		Offset: 0,
+		Count:  int64(limit),
 	}).Result()
 	if err != nil {
 		return nil, err
@@ -241,7 +235,6 @@ func (s *Store) TryConsumeAwaitedSignal(ctx context.Context, runID uuid.UUID, si
 		for i := range sigs {
 			if sigs[i].SignalName == signalName && sigs[i].ConsumedAt == nil {
 				sigs[i].ConsumedAt = &now
-				break
 			}
 		}
 		if len(rawSigs) > 0 {
@@ -271,27 +264,4 @@ func (s *Store) AppendSignal(ctx context.Context, sig domain.SagaSignal) error {
 		return err
 	}
 	return s.rdb.RPush(ctx, s.key("signals", sig.RunID.String()), b).Err()
-}
-
-// str converts an int64 to its decimal string representation.
-func str(n int64) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	buf := [20]byte{}
-	pos := 20
-	for n > 0 {
-		pos--
-		buf[pos] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		pos--
-		buf[pos] = '-'
-	}
-	return string(buf[pos:])
 }
