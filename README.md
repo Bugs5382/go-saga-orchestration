@@ -73,6 +73,7 @@ See [`examples/basic`](examples/basic) for a runnable standalone example, and [`
 |---|---|
 | [`docs/verbs.md`](docs/verbs.md) | Complete reference for all 31 step types — inputs, outputs, license groups, and example links |
 | [`docs/embedding.md`](docs/embedding.md) | Quickstart, custom verbs, data flow, entry points, production wiring, lifecycle, service mode |
+| [`docs/stores.md`](docs/stores.md) | Store backend selection (`STORE_TYPE`), env vars, Redis/Valkey durability, `REDIS_RUN_TTL`, and the stream-requires-postgres limitation |
 | [`docs/caveats.md`](docs/caveats.md) | Limitations and common gotchas with workarounds |
 | [`docs/architecture.md`](docs/architecture.md) | Engine internals, coordinator, MQ topology, stores, request flow, CEL rules |
 | [`docs/api.md`](docs/api.md) + [`api/openapi.yaml`](api/openapi.yaml) | REST API reference (17 endpoints) and OpenAPI 3 spec |
@@ -105,6 +106,9 @@ All configuration is via environment variables (`internal/config/config.go`):
 | `WORKFLOW_ENGINE_GRPC_PORT` | `9090` | engine | gRPC worker server port |
 | `DATABASE_DSN` | _(empty)_ | both | Postgres connection string (durable store) |
 | `RABBITMQ_URL` | _(empty)_ | both | RabbitMQ connection URL (step dispatch) |
+| `STORE_TYPE` | `postgres` | both | Store backend: `postgres` (default) \| `redis` \| `valkey` \| `memory` — see [`docs/stores.md`](docs/stores.md) |
+| `REDIS_URL` | _(empty)_ | both | Redis/Valkey connection URL (required when `STORE_TYPE` is `redis` or `valkey`) |
+| `REDIS_RUN_TTL` | `0s` | both | Go duration; auto-expire terminal-run keys after this window (default `0s` = keep forever) |
 
 ---
 
