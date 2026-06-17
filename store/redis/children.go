@@ -27,6 +27,7 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -37,38 +38,24 @@ import (
 
 // SpawnChildRunAt creates a child run linked to parentID/parentStepID/branchKey,
 // beginning at startStep (empty string means the child definition's default start).
+// The whole operation — def upsert and run/index writes — is performed inside a
+// single WATCH/MULTI/EXEC optimistic-transaction retry loop so it is atomic.
 func (s *Store) SpawnChildRunAt(ctx context.Context, parentID uuid.UUID, parentStepID, branchKey string, def domain.WorkflowDefinition, inputs map[string]any, startStep string) (uuid.UUID, error) {
-	// Resolve (or upsert) the definition via def:byname:{workflowID}.
 	byNameKey := s.key("def", "byname", def.ID)
-	ids, err := s.rdb.LRange(ctx, byNameKey, 0, -1).Result()
+
+	// Generate both IDs once before the retry loop so every attempt reuses the
+	// same values (idempotent on Redis if the tx fires more than once).
+	newDefID := uuid.New()
+	childID := uuid.New()
+
+	defB, err := json.Marshal(def)
 	if err != nil {
 		return uuid.Nil, err
 	}
 
-	var defStoredID uuid.UUID
-	if len(ids) > 0 {
-		// Use the most recently stored version.
-		defStoredID, err = uuid.Parse(ids[len(ids)-1])
-		if err != nil {
-			return uuid.Nil, err
-		}
-	} else {
-		// Upsert the definition.
-		defStoredID = uuid.New()
-		b, err := json.Marshal(def)
-		if err != nil {
-			return uuid.Nil, err
-		}
-		pipe := s.rdb.Pipeline()
-		pipe.Set(ctx, s.key("def", defStoredID.String()), b, 0)
-		pipe.RPush(ctx, byNameKey, defStoredID.String())
-		if _, err := pipe.Exec(ctx); err != nil {
-			return uuid.Nil, err
-		}
-	}
-
-	// Build the child run.
-	child := domain.NewSagaRun(def.ID, defStoredID, nil, inputs)
+	// Build the child run struct once; the ID and timestamps are stable.
+	child := domain.NewSagaRun(def.ID, uuid.Nil, nil, inputs) // DefinitionID resolved inside tx
+	child.ID = childID
 	if startStep != "" {
 		child.CurrentStep = startStep
 	}
@@ -79,23 +66,63 @@ func (s *Store) SpawnChildRunAt(ctx context.Context, parentID uuid.UUID, parentS
 	child.ParentStepID = &psid
 	child.ParentBranchID = &bid
 
-	b, err := json.Marshal(child)
-	if err != nil {
-		return uuid.Nil, err
-	}
+	var resolvedDefID uuid.UUID
 
-	pipe := s.rdb.Pipeline()
-	pipe.Set(ctx, s.key("run", child.ID.String()), b, 0)
-	pipe.ZAdd(ctx, s.key("idx", "runs"), goredis.Z{
-		Score:  float64(child.StartedAt.UnixNano()),
-		Member: child.ID.String(),
-	})
-	pipe.SAdd(ctx, s.key("idx", "runs", "byworkflow", def.ID), child.ID.String())
-	pipe.SAdd(ctx, s.key("idx", "children", parentID.String(), parentStepID), child.ID.String())
-	if _, err := pipe.Exec(ctx); err != nil {
-		return uuid.Nil, err
+	for i := 0; i < txMaxRetries; i++ {
+		err = s.rdb.Watch(ctx, func(tx *goredis.Tx) error {
+			// Read the def:byname list inside the WATCH so a concurrent upsert
+			// to byNameKey invalidates this transaction.
+			ids, err := tx.LRange(ctx, byNameKey, 0, -1).Result()
+			if err != nil {
+				return err
+			}
+
+			var defStoredID uuid.UUID
+			needDef := false
+			if len(ids) > 0 {
+				defStoredID, err = uuid.Parse(ids[len(ids)-1])
+				if err != nil {
+					return err
+				}
+			} else {
+				defStoredID = newDefID
+				needDef = true
+			}
+			resolvedDefID = defStoredID
+
+			child.DefinitionID = defStoredID
+			childB, err := json.Marshal(child)
+			if err != nil {
+				return err
+			}
+
+			_, txErr := tx.TxPipelined(ctx, func(p goredis.Pipeliner) error {
+				if needDef {
+					p.Set(ctx, s.key("def", defStoredID.String()), defB, 0)
+					p.RPush(ctx, byNameKey, defStoredID.String())
+				}
+				p.Set(ctx, s.key("run", child.ID.String()), childB, 0)
+				p.ZAdd(ctx, s.key("idx", "runs"), goredis.Z{
+					Score:  float64(child.StartedAt.UnixNano()),
+					Member: child.ID.String(),
+				})
+				p.SAdd(ctx, s.key("idx", "runs", "byworkflow", def.ID), child.ID.String())
+				p.SAdd(ctx, s.key("idx", "children", parentID.String(), parentStepID), child.ID.String())
+				return nil
+			})
+			return txErr
+		}, byNameKey)
+
+		if errors.Is(err, goredis.TxFailedErr) {
+			continue // optimistic conflict; retry
+		}
+		if err != nil {
+			return uuid.Nil, err
+		}
+		_ = resolvedDefID
+		return child.ID, nil
 	}
-	return child.ID, nil
+	return uuid.Nil, errors.New("redis: tx retry budget exhausted for child spawn under parent " + parentID.String())
 }
 
 // SpawnChildRun creates a child run beginning at the child definition's default start step.
