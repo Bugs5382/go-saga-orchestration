@@ -135,25 +135,55 @@ func (s *Store) WakeFromExternal(ctx context.Context, runID uuid.UUID) error {
 	})
 }
 
-// FindRunsByDueWakeup returns up to limit run IDs whose wakeup_at is at or
-// before now via ZRANGEBYSCORE idx:wakeup -inf now.UnixNano().
+// FindRunsByDueWakeup returns up to limit run IDs of paused runs whose
+// wakeup_at is at or before now. It queries idx:wakeup via ZRANGEBYSCORE then
+// loads the candidate run blobs and retains only those with State==RunStatePaused,
+// matching the memory-store oracle (store/memory/store.go). The limit bounds the
+// result count, not the ZSET scan range.
 func (s *Store) FindRunsByDueWakeup(ctx context.Context, now time.Time, limit int) ([]uuid.UUID, error) {
+	// Over-fetch from the ZSET (no server-side limit) so we can apply the
+	// state filter and still return up to limit paused entries.
 	members, err := s.rdb.ZRangeByScore(ctx, s.key("idx", "wakeup"), &goredis.ZRangeBy{
 		Min:    "-inf",
 		Max:    strconv.FormatInt(now.UnixNano(), 10),
 		Offset: 0,
-		Count:  int64(limit),
+		Count:  0, // 0 means no server-side limit; we filter locally
 	}).Result()
 	if err != nil {
 		return nil, err
 	}
-	ids := make([]uuid.UUID, 0, len(members))
-	for _, m := range members {
+	if len(members) == 0 {
+		return []uuid.UUID{}, nil
+	}
+	keys := make([]string, len(members))
+	memberIDs := make([]uuid.UUID, len(members))
+	for i, m := range members {
 		id, err := uuid.Parse(m)
 		if err != nil {
 			continue
 		}
-		ids = append(ids, id)
+		memberIDs[i] = id
+		keys[i] = s.key("run", m)
+	}
+	vals, err := s.rdb.MGet(ctx, keys...).Result()
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]uuid.UUID, 0, limit)
+	for i, v := range vals {
+		if len(ids) >= limit {
+			break
+		}
+		if v == nil {
+			continue
+		}
+		var r domain.SagaRun
+		if err := json.Unmarshal([]byte(v.(string)), &r); err != nil {
+			continue
+		}
+		if r.State == domain.RunStatePaused {
+			ids = append(ids, memberIDs[i])
+		}
 	}
 	return ids, nil
 }
@@ -218,6 +248,12 @@ func (s *Store) TryConsumeAwaitedSignal(ctx context.Context, runID uuid.UUID, si
 		r.WakeupAt = nil
 
 		// Mark the first unconsumed matching signal as consumed.
+		// Note: the signals list is read via LRANGE on the base client (not
+		// inside the WATCH), so it is not part of the optimistic transaction.
+		// A concurrent AppendSignal for the same run between this read and the
+		// subsequent DEL+RPUSH rewrite could lose that signal. This is
+		// acceptable for v1 and matches the memory store's non-serialization
+		// of signals vs the run blob.
 		sigKey := s.key("signals", runID.String())
 		rawSigs, err := s.rdb.LRange(ctx, sigKey, 0, -1).Result()
 		if err != nil {

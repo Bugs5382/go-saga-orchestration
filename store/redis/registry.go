@@ -174,6 +174,12 @@ func (s *Store) FailAction(ctx context.Context, runID uuid.UUID, attempt int, co
 		currentStep = r.CurrentStep
 		r.AwaitedActionDispatch = nil
 		r.State = domain.RunStateFailed
+		// Prune timer/event indexes so the wakeup poller does not re-emit
+		// saga.advance for this now-terminal run.
+		p.ZRem(ctx, s.key("idx", "wakeup"), runID.String())
+		if r.AwaitedEventTopic != nil {
+			p.SRem(ctx, s.key("idx", "awaitevent", *r.AwaitedEventTopic), runID.String())
+		}
 		s.applyTerminalTTL(ctx, p, runID)
 		return nil
 	})

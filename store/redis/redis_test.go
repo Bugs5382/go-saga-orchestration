@@ -50,6 +50,60 @@ func checkTTLBounds(t *testing.T, ctx context.Context, s *Store, key string, max
 	}
 }
 
+// TestFailAction_RemovesFromWakeupIndex verifies that FailAction prunes a run
+// from idx:wakeup (and idx:awaitevent when applicable) so a timer loop cannot
+// re-emit saga.advance for a failed run with a past deadline.
+//
+// Reproduction path: SetPausedAwaitingSignal with a past deadline registers the
+// run in idx:wakeup. MarkAwaitingAction + FailAction transitions the run to
+// failed (terminal). Before the fix, FailAction did not remove the run from
+// idx:wakeup, causing FindRunsByDueWakeup to keep returning its ID.
+func TestFailAction_RemovesFromWakeupIndex(t *testing.T) {
+	url := os.Getenv("TEST_REDIS_URL")
+	if url == "" {
+		t.Skip("set TEST_REDIS_URL to run Redis-specific tests")
+	}
+
+	ctx := context.Background()
+	s, err := Open(ctx, url, WithPrefix("saga-failaction:"+uuid.NewString()+":"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	run := domain.NewSagaRun("wf-failaction-test", uuid.New(), nil, nil)
+	if err := s.CreateRun(ctx, run); err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	// Register the run in idx:wakeup with a past deadline.
+	pastDeadline := time.Now().Add(-10 * time.Minute)
+	if err := s.SetPausedAwaitingSignal(ctx, run.ID, "go", &pastDeadline); err != nil {
+		t.Fatalf("set paused awaiting signal: %v", err)
+	}
+
+	// Transition to awaiting-action, then fail it (this is the path that
+	// leaves a stale wakeup entry before the fix).
+	const attempt = 1
+	if err := s.MarkAwaitingAction(ctx, run.ID, "svc.x", attempt); err != nil {
+		t.Fatalf("mark awaiting action: %v", err)
+	}
+	if err := s.FailAction(ctx, run.ID, attempt, "ERR", "injected failure", false); err != nil {
+		t.Fatalf("fail action: %v", err)
+	}
+
+	// The run is now terminal; FindRunsByDueWakeup must NOT return it.
+	ids, err := s.FindRunsByDueWakeup(ctx, time.Now(), 10)
+	if err != nil {
+		t.Fatalf("find runs by due wakeup: %v", err)
+	}
+	for _, id := range ids {
+		if id == run.ID {
+			t.Errorf("FindRunsByDueWakeup returned failed run %s — stale wakeup index entry not pruned", run.ID)
+		}
+	}
+}
+
 func TestTerminalRunTTL(t *testing.T) {
 	url := os.Getenv("TEST_REDIS_URL")
 	if url == "" {
