@@ -1,0 +1,16 @@
+{
+  "rule_id": "triage",
+  "version": 1,
+  "name": "Triage (high path)",
+  "rule_type": "decision_table",
+  "published": true,
+  "spec": {
+    "hit_policy": "first",
+    "rows": [
+      { "when": "priority == 'p1'", "then": {"branch": "high"} },
+      { "when": "priority == 'p2'", "then": {"branch": "high"} },
+      { "when": "priority == 'p3'", "then": {"branch": "low"} }
+    ],
+    "default_output": { "branch": "low" }
+  }
+}

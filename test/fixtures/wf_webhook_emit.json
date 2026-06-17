@@ -1,0 +1,11 @@
+{
+  "id": "wf_webhook_emit",
+  "version": 1,
+  "name": "single webhook_emit step",
+  "start": "w",
+  "steps": [
+    { "id": "w", "type": "webhook_emit", "inputs": {"url":"__SERVER_URL__","body":{"event":"saga_demo"}}, "next": "end" },
+    { "id": "end", "type": "end" }
+  ],
+  "published": true
+}

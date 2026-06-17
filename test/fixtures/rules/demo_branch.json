@@ -1,0 +1,14 @@
+{
+  "rule_id": "demo_branch",
+  "version": 1,
+  "name": "Demo branch (count threshold)",
+  "rule_type": "decision_table",
+  "published": true,
+  "spec": {
+    "hit_policy": "first",
+    "rows": [
+      { "when": "size(tail) >= 2", "then": {"branch": "high"} }
+    ],
+    "default_output": { "branch": "low" }
+  }
+}

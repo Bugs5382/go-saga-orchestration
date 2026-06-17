@@ -1,0 +1,11 @@
+{
+  "id": "wf_wait_for_signal",
+  "version": 1,
+  "name": "single wait_for_signal step",
+  "start": "w",
+  "steps": [
+    { "id": "w", "type": "wait_for_signal", "inputs": {"name": "go"}, "next": "end" },
+    { "id": "end", "type": "end" }
+  ],
+  "published": true
+}

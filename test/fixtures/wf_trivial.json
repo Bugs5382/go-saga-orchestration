@@ -1,0 +1,10 @@
+{
+  "id": "wf_trivial",
+  "version": 1,
+  "name": "Trivial workflow — single end step",
+  "start": "end",
+  "steps": [
+    { "id": "end", "type": "end" }
+  ],
+  "published": true
+}

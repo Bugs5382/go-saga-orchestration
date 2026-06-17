@@ -1,0 +1,11 @@
+{
+  "id": "wf_collect_input",
+  "version": 1,
+  "name": "collect_input demo",
+  "start": "c",
+  "steps": [
+    { "id": "c", "type": "collect_input", "inputs": {"assignee":"u1","form_schema":{"fields":[{"name":"reason","type":"text"}]}}, "next": "end" },
+    { "id": "end", "type": "end" }
+  ],
+  "published": true
+}

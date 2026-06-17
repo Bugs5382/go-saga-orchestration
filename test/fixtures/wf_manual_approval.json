@@ -1,0 +1,11 @@
+{
+  "id": "wf_manual_approval",
+  "version": 1,
+  "name": "manual_approval demo",
+  "start": "m",
+  "steps": [
+    { "id": "m", "type": "manual_approval", "inputs": {"assignee":"u1"}, "next": "end" },
+    { "id": "end", "type": "end" }
+  ],
+  "published": true
+}

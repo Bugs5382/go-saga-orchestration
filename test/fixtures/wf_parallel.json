@@ -1,0 +1,21 @@
+{
+  "id": "wf_parallel",
+  "version": 1,
+  "name": "parallel verb demo",
+  "start": "p",
+  "steps": [
+    {
+      "id": "p",
+      "type": "parallel",
+      "inputs": {
+        "branches": [
+          { "start": "b1_end", "steps": [{ "id": "b1_end", "type": "end" }] },
+          { "start": "b2_end", "steps": [{ "id": "b2_end", "type": "end" }] }
+        ]
+      },
+      "next": "end"
+    },
+    { "id": "end", "type": "end" }
+  ],
+  "published": true
+}

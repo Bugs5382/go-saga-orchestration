@@ -1,0 +1,19 @@
+{
+  "id": "wf-emit-event-waiter",
+  "version": 1,
+  "name": "emit_event waiter",
+  "start": "wait",
+  "published": true,
+  "steps": [
+    {
+      "id": "wait",
+      "type": "wait_for_event",
+      "inputs": {
+        "topic": "test.emit.event",
+        "headers": { "env": "test" }
+      },
+      "next": "end"
+    },
+    { "id": "end", "type": "end" }
+  ]
+}

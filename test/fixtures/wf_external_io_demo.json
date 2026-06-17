@@ -1,0 +1,14 @@
+{
+  "id": "wf_external_io_demo",
+  "version": 1,
+  "name": "Demo: http + wait_duration + wait_for_signal -> end",
+  "start": "s1",
+  "steps": [
+    { "id": "s1", "type": "set_var",        "inputs": {"out_var":"ttl","value":"100ms"}, "next": "s2" },
+    { "id": "s2", "type": "http_request",   "inputs": {"url":"__SERVER_URL__","out_var":"r"}, "next": "s3" },
+    { "id": "s3", "type": "wait_duration",  "inputs": {"duration":"100ms"}, "next": "s4" },
+    { "id": "s4", "type": "wait_for_signal","inputs": {"name":"approved"}, "next": "end" },
+    { "id": "end", "type": "end" }
+  ],
+  "published": true
+}

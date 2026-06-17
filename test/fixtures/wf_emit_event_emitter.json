@@ -1,0 +1,20 @@
+{
+  "id": "wf-emit-event-emitter",
+  "version": 1,
+  "name": "emit_event emitter",
+  "start": "emit",
+  "published": true,
+  "steps": [
+    {
+      "id": "emit",
+      "type": "emit_event",
+      "inputs": {
+        "topic": "test.emit.event",
+        "headers": { "env": "test" },
+        "payload": { "msg": "hello" }
+      },
+      "next": "end"
+    },
+    { "id": "end", "type": "end" }
+  ]
+}

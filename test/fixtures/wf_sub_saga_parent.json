@@ -1,0 +1,11 @@
+{
+  "id": "wf_sub_saga_parent",
+  "version": 1,
+  "name": "sub_saga parent",
+  "start": "ss",
+  "steps": [
+    { "id": "ss",  "type": "sub_saga", "inputs": {"workflow_id": "wf_sub_saga_child"}, "next": "end" },
+    { "id": "end", "type": "end" }
+  ],
+  "published": true
+}

@@ -1,0 +1,11 @@
+{
+  "id": "wf_sub_saga_child",
+  "version": 1,
+  "name": "trivial child",
+  "start": "c",
+  "steps": [
+    { "id": "c",   "type": "set_var", "inputs": {"out_var": "x", "value": 42}, "next": "end" },
+    { "id": "end", "type": "end" }
+  ],
+  "published": true
+}
