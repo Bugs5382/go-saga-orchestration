@@ -25,15 +25,12 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
 
 	"github.com/Bugs5382/go-saga-orchestration/domain"
 	"github.com/Bugs5382/go-saga-orchestration/store/memory"
@@ -84,94 +81,35 @@ func TestStreamHandler_NotFound(t *testing.T) {
 	}
 }
 
-// TestStreamHandler_SnapshotOnConnect seeds a run + two events, connects via
-// WebSocket, and asserts the first frames are the run snapshot followed by each event.
-func TestStreamHandler_SnapshotOnConnect(t *testing.T) {
+// TestStreamHandler_NilPool_501 verifies that Stream returns 501 (and does not
+// panic) when the handler is constructed with a nil pool, which happens when
+// STORE_TYPE is redis or memory and no postgres pool is available.
+func TestStreamHandler_NilPool_501(t *testing.T) {
 	s := memory.New()
 	ctx := context.Background()
 
-	// Seed a run.
+	// Seed a run so the handler passes the 404 guard and reaches the pool check.
 	def := domain.WorkflowDefinition{
-		ID: "wf_stream", Version: 1, Name: "StreamTest",
+		ID: "wf_nilpool", Version: 1, Name: "NilPoolTest",
 		Start: "end", Steps: []domain.Step{{ID: "end", Type: domain.StepTypeEnd}},
 		Published: true,
 	}
 	defID, _ := s.UpsertWorkflowDefinition(ctx, def)
-	run := domain.NewSagaRun("wf_stream", defID, nil, nil)
+	run := domain.NewSagaRun("wf_nilpool", defID, nil, nil)
 	if err := s.CreateRun(ctx, run); err != nil {
 		t.Fatalf("create run: %v", err)
 	}
 
-	// Seed two events.
-	e1 := domain.NewEvent(run.ID, "step1", 0, domain.EventSagaStarted, "engine")
-	e2 := domain.NewEvent(run.ID, "step2", 0, domain.EventStepSucceeded, "engine")
-	_ = s.AppendEvent(ctx, e1)
-	_ = s.AppendEvent(ctx, e2)
-
-	// The pool is nil — Stream exits after snapshot because WaitForNotification
-	// will panic on a nil pool. We rely on the WS client closing the connection
-	// first. To avoid a race, the test server uses a channel to coordinate.
-	h := &SagaStreamHandler{
-		S:    s,
-		Pool: nil, // LISTEN path not exercised in unit tests
-		Upgrade: websocket.Upgrader{
-			ReadBufferSize:  1024,
-			WriteBufferSize: 1024,
-			CheckOrigin:     func(r *http.Request) bool { return true },
-		},
-	}
-
-	// Wrap Stream so it returns after sending the snapshot (before LISTEN).
-	// We do this by having the WS client close the connection, which causes
-	// WriteMessage to fail and Stream to return naturally.
+	h := newStreamHandler(s) // nil pool
 	srv := routedStreamServer(h)
 	defer srv.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/api/v1/sagas/" + run.ID.String() + "/stream"
-	dialer := websocket.Dialer{}
-	wsConn, resp, err := dialer.Dial(wsURL, nil)
+	resp, err := http.Get(srv.URL + "/api/v1/sagas/" + run.ID.String() + "/stream")
 	if err != nil {
-		t.Fatalf("dial: %v (status %v)", err, resp)
+		t.Fatalf("GET: %v", err)
 	}
-	defer wsConn.Close()
-
-	// Read frame 0: run snapshot.
-	var f0 frame
-	if err := readFrame(t, wsConn, &f0); err != nil {
-		t.Fatalf("frame 0: %v", err)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotImplemented {
+		t.Errorf("status = %d, want 501", resp.StatusCode)
 	}
-	if f0.Type != "run" {
-		t.Errorf("frame 0 type = %q, want \"run\"", f0.Type)
-	}
-
-	// Read frame 1: event 1.
-	var f1 frame
-	if err := readFrame(t, wsConn, &f1); err != nil {
-		t.Fatalf("frame 1: %v", err)
-	}
-	if f1.Type != "event" {
-		t.Errorf("frame 1 type = %q, want \"event\"", f1.Type)
-	}
-
-	// Read frame 2: event 2.
-	var f2 frame
-	if err := readFrame(t, wsConn, &f2); err != nil {
-		t.Fatalf("frame 2: %v", err)
-	}
-	if f2.Type != "event" {
-		t.Errorf("frame 2 type = %q, want \"event\"", f2.Type)
-	}
-
-	// Close the WS to cleanly terminate the handler's acquire-nil-pool path.
-	_ = wsConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-}
-
-// readFrame reads one text message from the WS conn and unmarshals it into dst.
-func readFrame(t *testing.T, conn *websocket.Conn, dst *frame) error {
-	t.Helper()
-	_, msg, err := conn.ReadMessage()
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(msg, dst)
 }

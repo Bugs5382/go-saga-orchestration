@@ -12,6 +12,15 @@ jobs:
   build-test:
     name: Build & Test
     runs-on: ubuntu-latest
+    services:
+      valkey:
+        image: valkey/valkey:8
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "valkey-cli ping" --health-interval 5s
+          --health-timeout 3s --health-retries 5
+    env:
+      TEST_REDIS_URL: redis://localhost:6379/0
     steps:
       - uses: actions/checkout@v6
         with:

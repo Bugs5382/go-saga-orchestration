@@ -116,14 +116,20 @@ func (h *SagaStreamHandler) Stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Upgrade.
+	// 2. Require a Postgres pool — non-postgres backends pass nil.
+	if h.Pool == nil {
+		http.Error(w, "live streaming requires the postgres store backend", http.StatusNotImplemented)
+		return
+	}
+
+	// 3. Upgrade.
 	conn, err := h.Upgrade.Upgrade(w, r, nil)
 	if err != nil {
 		return // Upgrade writes its own error
 	}
 	defer func() { _ = conn.Close() }()
 
-	// 3. Send initial snapshot: the run + every existing event.
+	// 4. Send initial snapshot: the run + every existing event.
 	if err := writeJSON(conn, frame{Type: "run", Data: run}); err != nil {
 		return
 	}
@@ -134,7 +140,7 @@ func (h *SagaStreamHandler) Stream(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 4. LISTEN on per-run channel.
+	// 5. LISTEN on per-run channel.
 	pgConn, err := h.Pool.Acquire(r.Context())
 	if err != nil {
 		log.Warn().Err(err).Msg("stream: acquire pg conn")
@@ -148,7 +154,7 @@ func (h *SagaStreamHandler) Stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 5. Loop: read NOTIFY, fetch event by ID, send to WS.
+	// 6. Loop: read NOTIFY, fetch event by ID, send to WS.
 	for {
 		notify, err := pgConn.Conn().WaitForNotification(r.Context())
 		if err != nil {

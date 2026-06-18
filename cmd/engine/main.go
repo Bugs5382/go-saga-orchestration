@@ -45,9 +45,9 @@ import (
 	grpcsrv "github.com/Bugs5382/go-saga-orchestration/internal/grpc"
 	"github.com/Bugs5382/go-saga-orchestration/internal/logging"
 	"github.com/Bugs5382/go-saga-orchestration/internal/mq"
+	"github.com/Bugs5382/go-saga-orchestration/internal/storefactory"
 	"github.com/Bugs5382/go-saga-orchestration/licensing"
 	"github.com/Bugs5382/go-saga-orchestration/secrets"
-	"github.com/Bugs5382/go-saga-orchestration/store/postgres"
 )
 
 var (
@@ -74,16 +74,15 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	st, err := postgres.Open(ctx, cfg.DatabaseDSN)
+	st, closeStore, err := storefactory.Open(ctx, cfg)
 	if err != nil {
-		log.Fatal().Err(err).Msg("postgres connect")
+		log.Fatal().Err(err).Msg("store open")
 	}
-	defer st.Close()
+	defer func() { _ = closeStore() }()
 
-	if err := postgres.Migrate(cfg.DatabaseDSN); err != nil {
-		log.Fatal().Err(err).Msg("postgres migrate")
+	if cfg.StoreType == "" || cfg.StoreType == "postgres" {
+		log.Info().Msg("postgres migrations applied")
 	}
-	log.Info().Msg("postgres migrations applied")
 
 	conn, err := mq.Connect(cfg.RabbitMQURL)
 	if err != nil {

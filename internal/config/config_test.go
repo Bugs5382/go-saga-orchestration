@@ -59,3 +59,55 @@ func TestLoadFromEnv(t *testing.T) {
 		t.Errorf("DatabaseDSN = %q, want overridden value", cfg.DatabaseDSN)
 	}
 }
+
+func TestLoadStoreType(t *testing.T) {
+	t.Setenv("STORE_TYPE", "redis")
+	t.Setenv("REDIS_URL", "redis://localhost:6379/0")
+	t.Setenv("REDIS_RUN_TTL", "1h")
+
+	cfg := Load()
+	if cfg.StoreType != "redis" {
+		t.Errorf("StoreType = %q, want %q", cfg.StoreType, "redis")
+	}
+	if cfg.RedisURL != "redis://localhost:6379/0" {
+		t.Errorf("RedisURL = %q, want overridden value", cfg.RedisURL)
+	}
+	if cfg.RedisRunTTL != time.Hour {
+		t.Errorf("RedisRunTTL = %v, want 1h", cfg.RedisRunTTL)
+	}
+}
+
+func TestLoadStoreTypeDefaults(t *testing.T) {
+	for _, key := range []string{"STORE_TYPE", "REDIS_URL", "REDIS_RUN_TTL"} {
+		prev, had := os.LookupEnv(key)
+		_ = os.Unsetenv(key)
+		key, prev, had := key, prev, had // capture
+		t.Cleanup(func() {
+			if had {
+				_ = os.Setenv(key, prev)
+			} else {
+				_ = os.Unsetenv(key)
+			}
+		})
+	}
+
+	cfg := Load()
+	if cfg.StoreType != "postgres" {
+		t.Errorf("StoreType default = %q, want %q", cfg.StoreType, "postgres")
+	}
+	if cfg.RedisURL != "" {
+		t.Errorf("RedisURL default = %q, want empty", cfg.RedisURL)
+	}
+	if cfg.RedisRunTTL != 0 {
+		t.Errorf("RedisRunTTL default = %v, want 0", cfg.RedisRunTTL)
+	}
+}
+
+func TestParseRunTTLBadValue(t *testing.T) {
+	t.Setenv("REDIS_RUN_TTL", "not-a-duration")
+
+	cfg := Load()
+	if cfg.RedisRunTTL != 0 {
+		t.Errorf("RedisRunTTL bad parse = %v, want 0 (default)", cfg.RedisRunTTL)
+	}
+}
