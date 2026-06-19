@@ -22,7 +22,7 @@ require (
 )
 
 require (
-	github.com/Bugs5382/go-saga-orchestration/clients/go/worker v0.0.0
+	github.com/Bugs5382/go-saga-orchestration/clients/go/worker v0.1.2
 	github.com/antlr4-go/antlr/v4 v4.13.0 // indirect
 	github.com/jackc/pgerrcode v0.0.0-20220416144525-469b46aa5efa // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
@@ -42,3 +42,5 @@ require (
 )
 
 replace github.com/Bugs5382/go-saga-orchestration/clients/go/worker => ./clients/go/worker
+
+retract v0.1.1 // published in error; unconsumable cross-module v0.0.0 requires. See #52.

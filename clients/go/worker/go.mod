@@ -3,9 +3,9 @@ module github.com/Bugs5382/go-saga-orchestration/clients/go/worker
 go 1.26.2
 
 require (
+	github.com/Bugs5382/go-saga-orchestration v0.1.2
 	github.com/rabbitmq/amqp091-go v1.10.0
 	github.com/rs/zerolog v1.35.1
-	github.com/Bugs5382/go-saga-orchestration v0.0.0
 	google.golang.org/grpc v1.74.2
 )
 
@@ -20,3 +20,5 @@ require (
 )
 
 replace github.com/Bugs5382/go-saga-orchestration => ../../../
+
+retract v0.1.1 // published in error; unconsumable cross-module v0.0.0 requires. See #52.
