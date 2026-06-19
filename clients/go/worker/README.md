@@ -1,11 +1,3 @@
----
-title: go-saga-orchestration worker SDK (Go)
-description: Library every action-worker service imports to run as a saga-action worker. Registers actions with go-saga-orchestration on boot, consumes the per-service RabbitMQ queue, and bridges dispatches to host-service handlers via gRPC.
-status: active
-owner: go-saga-orchestration
-updated: 2026-05-29
----
-
 # worker — go-saga-orchestration Go SDK
 
 `worker` is the Go SDK that every action-worker service imports to run as a
