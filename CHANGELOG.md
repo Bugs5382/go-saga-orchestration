@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.2.0 - 2026-06-20
+
+### What Changed 👀
+
+#### 🚀 Features
+
+- feat(store): add Redis/Valkey store backend @Bugs5382 (#50)
+
+#### 🐛 Bug Fixes
+
+- fix(modules): make clients/go/worker externally consumable + retract v0.1.1 @Bugs5382 (#53)
+
+#### ⚡ Performance
+
+- perf(engine): benchmark and tune the coordinator hot path @Bugs5382 (#47)
+
+#### 🧩 Dependency Updates
+
+- chore(deps): bump the github-actions group with 3 updates @[dependabot[bot]](https://github.com/apps/dependabot) (#49)
+
+### Extra
+
+**Full Changelog**: https://github.com/Bugs5382/go-saga-orchestration/compare/v0.1.0...v0.2.0
+
 ## v0.1.0 - 2026-06-17
 
 ### What Changed 👀
