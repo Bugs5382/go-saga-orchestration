@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.2.1 - 2026-06-20
+
+### What Changed 👀
+
+#### 🐛 Bug Fixes
+
+- fix(modules): collapse clients/go/worker into the root module @Bugs5382 (#55)
+
+### Extra
+
+**Full Changelog**: https://github.com/Bugs5382/go-saga-orchestration/compare/v0.2.0...v0.2.1
+
 ## v0.2.0 - 2026-06-20
 
 ### What Changed 👀
