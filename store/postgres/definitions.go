@@ -50,7 +50,13 @@ func (s *Store) UpsertWorkflowDefinition(ctx context.Context, def domain.Workflo
 	if def.CreatedBy == "" {
 		def.CreatedBy = "system"
 	}
-	_, err = s.pool.Exec(ctx, `
+	// Capture RETURNING id: on an INSERT it equals the generated id; on the
+	// ON CONFLICT update path it is the EXISTING row's id. Returning the local
+	// id instead would hand callers a phantom uuid for an already-published
+	// definition, breaking the saga_runs.definition_id foreign key when a run
+	// is then created for it.
+	var rowID uuid.UUID
+	err = s.pool.QueryRow(ctx, `
 		INSERT INTO definitions.workflow_definitions
 		  (id, workflow_id, version, tenant_id, name, description, spec, published, created_at, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -61,11 +67,11 @@ func (s *Store) UpsertWorkflowDefinition(ctx context.Context, def domain.Workflo
 		  published = EXCLUDED.published
 		RETURNING id`,
 		id, def.ID, def.Version, def.TenantID, def.Name, def.Description, spec, def.Published, def.CreatedAt, def.CreatedBy,
-	)
+	).Scan(&rowID)
 	if err != nil {
 		return uuid.Nil, err
 	}
-	return id, nil
+	return rowID, nil
 }
 
 // GetWorkflowDefinition returns the definition with the given storage ID, or

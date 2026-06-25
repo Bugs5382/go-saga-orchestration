@@ -79,7 +79,7 @@ func (s *Store) GetRun(ctx context.Context, id uuid.UUID) (domain.SagaRun, error
 		terminalAt    *time.Time
 	)
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, workflow_id, definition_id, tenant_id, state, current_step,
+		SELECT id, workflow_id, definition_id, tenant_id, state, COALESCE(current_step, '') AS current_step,
 		       inputs, variables, started_at, last_event_at, terminal_at,
 		       requires_manual_review, trigger_id, parent_run_id, dry_run,
 		       feature_overrides
@@ -206,7 +206,7 @@ func (s *Store) FindRunsByDueWakeup(ctx context.Context, now time.Time, limit in
 // FindRunsByAwaitedEvent returns paused runs awaiting an event on topic.
 func (s *Store) FindRunsByAwaitedEvent(ctx context.Context, topic string) ([]domain.SagaRun, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, workflow_id, definition_id, tenant_id, state, current_step,
+		SELECT id, workflow_id, definition_id, tenant_id, state, COALESCE(current_step, '') AS current_step,
 		       inputs, variables, started_at, last_event_at, terminal_at,
 		       requires_manual_review, trigger_id, parent_run_id, dry_run,
 		       wakeup_at, awaited_signal, awaited_event_topic, awaited_event_headers
@@ -354,7 +354,7 @@ func (s *Store) SpawnChildRun(ctx context.Context, parentID uuid.UUID, parentSte
 // ListChildrenByParent returns all runs with parent_run_id=$1 AND parent_step_id=$2.
 func (s *Store) ListChildrenByParent(ctx context.Context, parentID uuid.UUID, parentStepID string) ([]domain.SagaRun, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, workflow_id, definition_id, tenant_id, state, current_step,
+		SELECT id, workflow_id, definition_id, tenant_id, state, COALESCE(current_step, '') AS current_step,
 		       inputs, variables, started_at, last_event_at, terminal_at,
 		       requires_manual_review, trigger_id, parent_run_id, dry_run
 		FROM runtime.saga_runs
