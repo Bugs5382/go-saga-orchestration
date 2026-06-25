@@ -63,7 +63,7 @@ func (s *Store) GetUserTask(ctx context.Context, taskID uuid.UUID) (domain.UserT
 	)
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, run_id, step_id, assignee, due_at, form_schema,
-		       submitted_at, submitted_by, result
+		       submitted_at, COALESCE(submitted_by, '') AS submitted_by, result
 		FROM runtime.saga_user_tasks WHERE id = $1`, taskID).Scan(
 		&task.ID, &task.RunID, &task.StepID, &task.Assignee, &task.DueAt, &formJSON,
 		&task.SubmittedAt, &task.SubmittedBy, &resultJSON,
@@ -93,7 +93,7 @@ func (s *Store) GetUserTask(ctx context.Context, taskID uuid.UUID) (domain.UserT
 func (s *Store) ListUserTasksByRun(ctx context.Context, runID uuid.UUID) ([]domain.UserTask, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, run_id, step_id, assignee, due_at, form_schema,
-		       submitted_at, submitted_by, result
+		       submitted_at, COALESCE(submitted_by, '') AS submitted_by, result
 		FROM runtime.saga_user_tasks
 		WHERE run_id = $1
 		ORDER BY id`, runID)
