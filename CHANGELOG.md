@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.2.2 - 2026-06-25
+
+### What Changed 👀
+
+#### 🐛 Bug Fixes
+
+- fix(postgres): correct UpsertWorkflowDefinition id and NULL current\_step scans @Bugs5382 (#62)
+
+### Extra
+
+**Full Changelog**: https://github.com/Bugs5382/go-saga-orchestration/compare/v0.2.1...v0.2.2
+
 ## v0.2.1 - 2026-06-20
 
 ### What Changed 👀
