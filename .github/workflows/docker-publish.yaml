@@ -60,5 +60,5 @@ jobs:
           TAG: ${{ github.event.release.tag_name }}
         run: |
           ver="${TAG#v}"
-          helm package chart/ --version "$ver" --app-version "$ver" -d dist
+          helm package deployments/helm/ --version "$ver" --app-version "$ver" -d dist
           gh release upload "$TAG" dist/*.tgz --clobber

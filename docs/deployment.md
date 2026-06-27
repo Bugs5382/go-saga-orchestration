@@ -51,4 +51,4 @@ helm install go-saga \
 | `engine.grpcPort` | `9090` | Engine gRPC port (`WORKFLOW_ENGINE_GRPC_PORT`) |
 | `ingress.enabled` | `false` | Expose the api via Ingress |
 
-See `chart/values.yaml` for the full set, including probes, resources, and security context.
+See `deployments/helm/values.yaml` for the full set, including probes, resources, and security context.

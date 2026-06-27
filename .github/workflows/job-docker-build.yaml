@@ -9,7 +9,7 @@ on:
       - 'go.mod'
       - 'go.sum'
       - 'Dockerfile'
-      - 'chart/**'
+      - 'deployments/helm/**'
 permissions:
   contents: read
 concurrency:
@@ -45,6 +45,6 @@ jobs:
       - name: ⎈ Set up Helm
         uses: azure/setup-helm@v4
       - name: ⎈ Lint
-        run: helm lint chart/
+        run: helm lint deployments/helm/
       - name: ⎈ Render
-        run: helm template go-saga chart/ -f chart/ci/default-values.yaml > /dev/null
+        run: helm template go-saga deployments/helm/ -f deployments/helm/ci/default-values.yaml > /dev/null

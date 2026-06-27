@@ -7,7 +7,7 @@ yaml-files:
 # Helm chart templates are Go templates, not valid YAML on their own; helm lint
 # covers them instead.
 ignore: |
-  chart/templates/
+  deployments/helm/templates/
 
 rules:
   braces:

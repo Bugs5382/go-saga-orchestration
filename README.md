@@ -134,7 +134,7 @@ All configuration is via environment variables (`internal/config/config.go`):
 - `clients/go/worker` — Go worker SDK (nested module) for consuming services.
 - `proto/` — gRPC worker liveness service + generated code.
 - `test/e2e` — end-to-end tests (require Postgres + RabbitMQ).
-- `deployments/helm` — Helm chart skeleton.
+- `deployments/helm` — Helm chart deploying the api and engine (see [`docs/deployment.md`](docs/deployment.md)).
 - `ui/` — reserved for the future reusable UI framework (outside the Go module; planned).
 
 ---
