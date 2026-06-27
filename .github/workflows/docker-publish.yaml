@@ -1,0 +1,64 @@
+name: Docker Publish
+# On a published release: push multi-arch images to GHCR and attach the packaged
+# Helm chart as a release asset. Versions are read from the release tag so images,
+# chart version, and appVersion match.
+on:
+  release:
+    types: [published]
+permissions:
+  contents: write
+  packages: write
+jobs:
+  publish-images:
+    name: 🐳 Publish images
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [api, engine]
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+      - name: 🔧 Set up Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: 🔑 Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: 🏷️ Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/${{ matrix.service }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ github.event.release.tag_name }}
+            type=raw,value=latest
+            type=sha
+      - name: 🐳 Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          build-args: SERVICE=${{ matrix.service }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+  publish-chart:
+    name: ⎈ Publish chart asset
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+      - name: ⎈ Set up Helm
+        uses: azure/setup-helm@v4
+      - name: ⎈ Package and upload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          ver="${TAG#v}"
+          helm package chart/ --version "$ver" --app-version "$ver" -d dist
+          gh release upload "$TAG" dist/*.tgz --clobber

@@ -4,6 +4,11 @@ yaml-files:
   - '*.yml'
   - '.yamllint'
 
+# Helm chart templates are Go templates, not valid YAML on their own; helm lint
+# covers them instead.
+ignore: |
+  chart/templates/
+
 rules:
   braces:
     level: warning
