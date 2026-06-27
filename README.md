@@ -13,6 +13,7 @@ A standalone, solution-agnostic **saga orchestrator + synchronous CEL rule evalu
 - **gRPC workers** — microservices connect over bidirectional gRPC streams to handle `action` steps and return results without polling.
 - **Durable audit trail** — every step transition, rule evaluation, signal, and metric is written as an immutable event row.
 - **License-gated verbs** — feature groups (`waits`, `parallel_control`, `human_interaction`, …) are checked at publish and runtime so environments only use the features they are licensed for.
+- **Scheduled starts** — cron-scheduled triggers start a workflow on a recurring schedule, fired durably (exactly once per window across engine pods).
 
 ---
 
