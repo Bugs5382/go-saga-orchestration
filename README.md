@@ -78,6 +78,7 @@ See [`examples/basic`](examples/basic) for a runnable standalone example, and [`
 | [`docs/architecture.md`](docs/architecture.md) | Engine internals, coordinator, MQ topology, stores, request flow, CEL rules |
 | [`docs/api.md`](docs/api.md) + [`api/openapi.yaml`](api/openapi.yaml) | REST API reference (17 endpoints) and OpenAPI 3 spec |
 | [`docs/grpc.md`](docs/grpc.md) | The `WorkerLiveness.ExecuteStep` worker protocol |
+| [`docs/deployment.md`](docs/deployment.md) | Container images (GHCR) and Helm chart deployment |
 | [`clients/go/worker/README.md`](clients/go/worker/README.md) | Go worker SDK |
 | [`examples/`](examples/) | Basic embed example and 31 per-verb workflow JSON files |
 
