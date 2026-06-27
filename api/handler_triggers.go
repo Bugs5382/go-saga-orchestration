@@ -124,7 +124,7 @@ func (h *TriggerHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 		ok, err := h.Licensing.IsFeatureEnabled(r.Context(), tenantID, engine.FeatureCronTriggers, nil)
 		if err != nil || !ok {
-			WriteError(w, http.StatusForbidden, "forbidden", "cron triggers not licensed")
+			WriteError(w, http.StatusForbidden, CodeForbidden, "cron triggers not licensed")
 			return
 		}
 		next := sched.Next(h.Clock.Now())

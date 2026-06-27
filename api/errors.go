@@ -28,6 +28,7 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 const (
 	CodeBadRequest    = "bad_request"
 	CodeNotFound      = "not_found"
+	CodeForbidden     = "forbidden"
 	CodeInternal      = "internal"
 	CodeInvalidConfig = "invalid_config"
 	CodePublishFailed = "publish_failed"
