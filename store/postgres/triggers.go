@@ -26,6 +26,7 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -55,15 +56,18 @@ func (s *Store) UpsertTrigger(ctx context.Context, trigger domain.SagaTrigger) (
 	}
 	_, err = s.pool.Exec(ctx, `
 INSERT INTO runtime.saga_triggers
-  (id, trigger_type, workflow_id, version, config, enabled, tenant_id, created_at, created_by)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+  (id, trigger_type, workflow_id, version, config, enabled, tenant_id, created_at, created_by,
+   next_fire_at, last_fired_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT (id) DO UPDATE SET
-  trigger_type = EXCLUDED.trigger_type,
-  workflow_id  = EXCLUDED.workflow_id,
-  version      = EXCLUDED.version,
-  config       = EXCLUDED.config,
-  enabled      = EXCLUDED.enabled,
-  tenant_id    = EXCLUDED.tenant_id
+  trigger_type  = EXCLUDED.trigger_type,
+  workflow_id   = EXCLUDED.workflow_id,
+  version       = EXCLUDED.version,
+  config        = EXCLUDED.config,
+  enabled       = EXCLUDED.enabled,
+  tenant_id     = EXCLUDED.tenant_id,
+  next_fire_at  = EXCLUDED.next_fire_at,
+  last_fired_at = EXCLUDED.last_fired_at
 `,
 		id,
 		string(trigger.TriggerType),
@@ -74,6 +78,8 @@ ON CONFLICT (id) DO UPDATE SET
 		trigger.TenantID,
 		trigger.CreatedAt,
 		trigger.CreatedBy,
+		trigger.NextFireAt,
+		trigger.LastFiredAt,
 	)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("upsert trigger: %w", err)
@@ -84,7 +90,8 @@ ON CONFLICT (id) DO UPDATE SET
 // GetTrigger returns the SagaTrigger for id, or ErrNotFound.
 func (s *Store) GetTrigger(ctx context.Context, id uuid.UUID) (domain.SagaTrigger, error) {
 	row := s.pool.QueryRow(ctx, `
-SELECT id, trigger_type, workflow_id, version, config, enabled, tenant_id, created_at, created_by
+SELECT id, trigger_type, workflow_id, version, config, enabled, tenant_id, created_at, created_by,
+       next_fire_at, last_fired_at
 FROM runtime.saga_triggers
 WHERE id = $1`, id)
 	t, err := scanTrigger(row)
@@ -113,7 +120,8 @@ func (s *Store) ListTriggers(ctx context.Context, filter store.TriggerFilter) ([
 		args = append(args, *filter.TenantID)
 		where = append(where, "tenant_id = $"+strconv.Itoa(len(args)))
 	}
-	q := `SELECT id, trigger_type, workflow_id, version, config, enabled, tenant_id, created_at, created_by
+	q := `SELECT id, trigger_type, workflow_id, version, config, enabled, tenant_id, created_at, created_by,
+               next_fire_at, last_fired_at
           FROM runtime.saga_triggers`
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
@@ -148,6 +156,51 @@ func (s *Store) DeleteTrigger(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// ListDueCronTriggers returns enabled cron triggers whose next_fire_at is at or
+// before now, ordered oldest-first, capped at limit.
+func (s *Store) ListDueCronTriggers(ctx context.Context, now time.Time, limit int) ([]domain.SagaTrigger, error) {
+	const q = `SELECT id, trigger_type, workflow_id, version, config, enabled,
+	                  tenant_id, created_at, created_by, next_fire_at, last_fired_at
+	             FROM runtime.saga_triggers
+	            WHERE trigger_type = 'cron' AND enabled
+	              AND next_fire_at IS NOT NULL AND next_fire_at <= $1
+	         ORDER BY next_fire_at ASC
+	            LIMIT $2`
+	rows, err := s.pool.Query(ctx, q, now, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list due cron triggers: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.SagaTrigger
+	for rows.Next() {
+		t, err := scanTrigger(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan due cron trigger: %w", err)
+		}
+		out = append(out, t)
+	}
+	return out, nil
+}
+
+// ClaimCronFire atomically advances next_fire_at from expectedNextFire to
+// newNextFire and stamps last_fired_at=now(). Returns true iff this caller won
+// the compare-and-swap (false means another pod already claimed this fire).
+func (s *Store) ClaimCronFire(ctx context.Context, id uuid.UUID, expectedNextFire, newNextFire time.Time) (bool, error) {
+	const q = `UPDATE runtime.saga_triggers
+	              SET next_fire_at = $3, last_fired_at = now()
+	            WHERE id = $1 AND next_fire_at = $2
+	          RETURNING id`
+	var got uuid.UUID
+	err := s.pool.QueryRow(ctx, q, id, expectedNextFire, newNextFire).Scan(&got)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("claim cron fire: %w", err)
+	}
+	return true, nil
+}
+
 // scanTrigger scans a single row (from QueryRow or rows.Scan) into SagaTrigger.
 type triggerScanner interface {
 	Scan(dest ...any) error
@@ -169,6 +222,8 @@ func scanTrigger(sc triggerScanner) (domain.SagaTrigger, error) {
 		&t.TenantID,
 		&t.CreatedAt,
 		&t.CreatedBy,
+		&t.NextFireAt,
+		&t.LastFiredAt,
 	); err != nil {
 		return domain.SagaTrigger{}, err
 	}
