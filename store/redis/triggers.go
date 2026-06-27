@@ -178,8 +178,8 @@ func (s *Store) ListDueCronTriggers(ctx context.Context, now time.Time, limit in
 // transaction. Returns true iff this caller won the compare-and-swap.
 func (s *Store) ClaimCronFire(ctx context.Context, id uuid.UUID, expectedNextFire, newNextFire time.Time) (bool, error) {
 	key := s.key("trigger", id.String())
-	claimed := false
 	for i := 0; i < txMaxRetries; i++ {
+		won := false
 		err := s.rdb.Watch(ctx, func(tx *goredis.Tx) error {
 			t, ok, err := getJSON[domain.SagaTrigger](ctx, tx, key)
 			if err != nil {
@@ -201,7 +201,7 @@ func (s *Store) ClaimCronFire(ctx context.Context, id uuid.UUID, expectedNextFir
 			if err != nil {
 				return err
 			}
-			claimed = true
+			won = true
 			return nil
 		}, key)
 		if errors.Is(err, goredis.TxFailedErr) {
@@ -210,7 +210,7 @@ func (s *Store) ClaimCronFire(ctx context.Context, id uuid.UUID, expectedNextFir
 		if err != nil {
 			return false, err
 		}
-		return claimed, nil
+		return won, nil
 	}
 	return false, errors.New("redis: ClaimCronFire tx retry budget exhausted for " + id.String())
 }
