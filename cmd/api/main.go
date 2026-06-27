@@ -36,10 +36,12 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/Bugs5382/go-saga-orchestration/api"
+	"github.com/Bugs5382/go-saga-orchestration/clock"
 	"github.com/Bugs5382/go-saga-orchestration/internal/config"
 	"github.com/Bugs5382/go-saga-orchestration/internal/logging"
 	"github.com/Bugs5382/go-saga-orchestration/internal/mq"
 	"github.com/Bugs5382/go-saga-orchestration/internal/storefactory"
+	"github.com/Bugs5382/go-saga-orchestration/licensing"
 	"github.com/Bugs5382/go-saga-orchestration/store/postgres"
 )
 
@@ -91,7 +93,7 @@ func main() {
 	userTasks := api.NewUserTaskHandler(st, pub)
 	reg := api.NewRegistryHandler(st)
 	rules := api.NewRulesHandler(st)
-	triggers := api.NewTriggerHandler(st)
+	triggers := api.NewTriggerHandler(st, licensing.StubAllowAll{}, clock.SystemClock{})
 	var pgPool *pgxpool.Pool
 	if ps, ok := st.(*postgres.Store); ok {
 		pgPool = ps.Pool()
