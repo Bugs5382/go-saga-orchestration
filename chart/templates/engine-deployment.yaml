@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "gosaga.fullname" . }}-engine
+  labels:
+    {{- include "gosaga.labels" . | nindent 4 }}
+    app.kubernetes.io/component: engine
+spec:
+  replicas: {{ .Values.engine.replicas }}
+  strategy:
+    {{- toYaml .Values.engine.updateStrategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "gosaga.selectorLabels" (merge (dict "component" "engine") .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "gosaga.selectorLabels" (merge (dict "component" "engine") .) | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "gosaga.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: engine
+          image: "{{ .Values.image.registry }}/{{ .Values.image.engine.repository }}:{{ include "gosaga.imageTag" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.engine.grpcPort }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "gosaga.fullname" . }}-config
+          {{- if .Values.connectionSecret }}
+          env:
+            {{- include "gosaga.connEnv" . | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+            {{- toYaml .Values.engine.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.engine.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.engine.resources | nindent 12 }}

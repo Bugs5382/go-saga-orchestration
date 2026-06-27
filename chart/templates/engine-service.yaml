@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "gosaga.fullname" . }}-engine
+  labels:
+    {{- include "gosaga.labels" . | nindent 4 }}
+    app.kubernetes.io/component: engine
+spec:
+  type: {{ .Values.engine.service.type }}
+  selector:
+    {{- include "gosaga.selectorLabels" (merge (dict "component" "engine") .) | nindent 4 }}
+  ports:
+    - name: grpc
+      port: {{ .Values.engine.grpcPort }}
+      targetPort: grpc
