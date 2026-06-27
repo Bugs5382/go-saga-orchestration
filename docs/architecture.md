@@ -188,7 +188,7 @@ The `CronDispatcher` polls on a ~1-second tick. On each tick it calls `ListDueCr
 
 **License gate.** Cron triggers are gated by the `wf.cron_triggers` feature flag, checked at both create time (REST) and fire time (dispatcher). The `wf.cron_triggers` feature is not part of the verb `GroupToFeature` map; it is checked directly against the license resolver.
 
-**Management.** Cron triggers are created, listed, and deleted through the existing `/api/v1/triggers` REST endpoints. `POST /api/v1/triggers` with `trigger_type: cron` and a valid `config.schedule` initializes `next_fire_at` from the current time and enables the trigger immediately.
+**Management.** Cron triggers are created, listed, and deleted through the existing `/api/v1/triggers` REST endpoints. `POST /api/v1/triggers` with `trigger_type: cron` and a valid `config.schedule` initializes `next_fire_at` to the next schedule tick after the current time (so the first run fires on schedule, not immediately) and enables the trigger.
 
 ### Signals (`domain/signal.go`, `api/handler_signals.go`)
 A `SagaSignal` is an external message addressed to a specific run by name. `POST /api/v1/sagas/{run_id}/signal/{name}` appends the signal row, then calls `TryConsumeAwaitedSignal(run, name)`. If the run was paused awaiting exactly that signal, it consumes it (clearing markers, setting `wakeup_at=now`) and publishes `saga.advance` → `202`. If the run was not awaiting it → `409` (recorded but not matched). Signals wake `wait_for_signal`, and (indirectly) `manual_approval`/`collect_input`, which await the synthetic signal `user_task.<task_id>.submitted`.
