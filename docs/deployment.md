@@ -31,11 +31,13 @@ kubectl create secret generic gosaga-conn \
 
 ## Install the Helm chart
 
-The chart is attached to each GitHub Release as `go-saga-orchestration-<version>.tgz`:
+The chart is attached to each GitHub Release as `go-saga-orchestration-<version>.tgz`.
+Replace `<version>` below with the release you want (see the
+[Releases](https://github.com/Bugs5382/go-saga-orchestration/releases) page):
 
 ```bash
 helm install go-saga \
-  https://github.com/Bugs5382/go-saga-orchestration/releases/download/v0.2.2/go-saga-orchestration-0.2.2.tgz \
+  https://github.com/Bugs5382/go-saga-orchestration/releases/download/v<version>/go-saga-orchestration-<version>.tgz \
   --set store.type=postgres \
   --set connectionSecret=gosaga-conn
 ```
