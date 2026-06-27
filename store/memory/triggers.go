@@ -25,6 +25,7 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -97,4 +98,43 @@ func (s *Store) DeleteTrigger(_ context.Context, id uuid.UUID) error {
 	}
 	delete(s.triggers, id)
 	return nil
+}
+
+// ListDueCronTriggers returns enabled cron triggers whose next_fire_at is at
+// or before now, sorted oldest-first, capped at limit.
+func (s *Store) ListDueCronTriggers(_ context.Context, now time.Time, limit int) ([]domain.SagaTrigger, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []domain.SagaTrigger
+	for _, t := range s.triggers {
+		if t.TriggerType != domain.TriggerCron || !t.Enabled || t.NextFireAt == nil {
+			continue
+		}
+		if !t.NextFireAt.After(now) { // next_fire_at <= now
+			out = append(out, t)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].NextFireAt.Before(*out[j].NextFireAt) })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+// ClaimCronFire atomically advances next_fire_at from expectedNextFire to
+// newNextFire and stamps last_fired_at. Returns true iff this caller won
+// (the CAS matched). Returns false without error when the expected value no
+// longer matches — the caller lost the race.
+func (s *Store) ClaimCronFire(_ context.Context, id uuid.UUID, expectedNextFire, newNextFire time.Time) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.triggers[id]
+	if !ok || t.NextFireAt == nil || !t.NextFireAt.Equal(expectedNextFire) {
+		return false, nil
+	}
+	now := newNextFire // memory has no wall clock; stamp last_fired_at off the claim
+	t.NextFireAt = &newNextFire
+	t.LastFiredAt = &now
+	s.triggers[id] = t
+	return true, nil
 }
