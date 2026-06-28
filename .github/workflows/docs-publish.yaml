@@ -1,0 +1,93 @@
+name: Docs Publish
+# Build and publish the Docusaurus docs site to GitHub Pages, TAG-GATED: docs
+# ship with a release, not on every merge. On a published release the workflow
+# cuts a versioned snapshot (docusaurus docs:version <tag>) so the version always
+# matches the release, commits the snapshot back to main via the release App, then
+# builds and deploys.
+#
+# First-time setup (one-off): Settings -> Pages -> Source = GitHub Actions, and add
+# a v* tag deployment-branch policy to the github-pages environment:
+#   gh api -X POST repos/Bugs5382/go-saga-orchestration/environments/github-pages/deployment-branch-policies -f name='v*' -f type=tag
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  version-and-build:
+    name: 🔨 Version and build
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🔑 Create App token
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: "Iv23ligVrrLzGPXe28dn"
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      - name: 📥 Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+      - name: 🐹 Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+      - name: 🟢 Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - name: 📦 Install dependencies
+        working-directory: website
+        run: npm ci
+      - name: 📸 Cut versioned snapshot
+        if: github.event_name == 'release'
+        working-directory: website
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          ver="${TAG#v}"
+          if [ -d "versioned_docs/version-$ver" ]; then
+            echo "version $ver already snapshotted; skipping docs:version"
+          else
+            npm run gen
+            npx docusaurus docs:version "$ver"
+          fi
+      - name: 📤 Commit snapshot to main
+        if: github.event_name == 'release'
+        uses: stefanzweifel/git-auto-commit-action@v7
+        with:
+          commit_message: "docs(release): snapshot ${{ github.event.release.tag_name }} [skip ci]"
+          commit_user_name: ${{ github.actor }}
+          commit_user_email: ${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com
+          commit_author: ${{ github.actor }} <${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com>
+          file_pattern: website/versioned_docs website/versioned_sidebars website/versions.json
+      - name: 🏗️ Build the docs site
+        working-directory: website
+        run: npm run build
+      - name: ⚙️ Configure Pages
+        uses: actions/configure-pages@v5
+      - name: ⬆️ Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: website/build
+  deploy:
+    name: 🚀 Deploy
+    needs: [version-and-build]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 🚀 Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
