@@ -51,22 +51,24 @@ type Store struct {
 	signals    map[uuid.UUID][]domain.SagaSignal
 	userTasks  map[uuid.UUID]domain.UserTask
 	actions    map[string]map[int]domain.ActionRegistration // key: service.name -> version
-	triggers   map[uuid.UUID]domain.SagaTrigger
+	triggers      map[uuid.UUID]domain.SagaTrigger
+	triggerFires  []domain.TriggerFireRow
 }
 
 // New returns an empty Store. Compile-time check confirms it satisfies the interface.
 func New() *Store {
 	return &Store{
-		defs:       map[uuid.UUID]domain.WorkflowDefinition{},
-		defsByName: map[string][]uuid.UUID{},
-		runs:       map[uuid.UUID]domain.SagaRun{},
-		events:     map[uuid.UUID][]domain.SagaRunEvent{},
-		rules:      map[uuid.UUID]domain.RuleDefinition{},
-		rulesByID:  map[string][]uuid.UUID{},
-		signals:    map[uuid.UUID][]domain.SagaSignal{},
-		userTasks:  map[uuid.UUID]domain.UserTask{},
-		actions:    map[string]map[int]domain.ActionRegistration{},
-		triggers:   map[uuid.UUID]domain.SagaTrigger{},
+		defs:         map[uuid.UUID]domain.WorkflowDefinition{},
+		defsByName:   map[string][]uuid.UUID{},
+		runs:         map[uuid.UUID]domain.SagaRun{},
+		events:       map[uuid.UUID][]domain.SagaRunEvent{},
+		rules:        map[uuid.UUID]domain.RuleDefinition{},
+		rulesByID:    map[string][]uuid.UUID{},
+		signals:      map[uuid.UUID][]domain.SagaSignal{},
+		userTasks:    map[uuid.UUID]domain.UserTask{},
+		actions:      map[string]map[int]domain.ActionRegistration{},
+		triggers:     map[uuid.UUID]domain.SagaTrigger{},
+		triggerFires: []domain.TriggerFireRow{},
 	}
 }
 

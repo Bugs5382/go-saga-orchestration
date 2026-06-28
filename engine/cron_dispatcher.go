@@ -188,6 +188,8 @@ func (d *CronDispatcher) startRun(ctx context.Context, tr domain.SagaTrigger, lo
 
 	run := domain.NewSagaRun(def.ID, defRowID, tr.TenantID, inputs)
 	run.CurrentStep = startStep
+	trigID := tr.ID
+	run.TriggerID = &trigID
 	if err := d.S.CreateRun(ctx, run); err != nil {
 		return err
 	}
@@ -198,6 +200,10 @@ func (d *CronDispatcher) startRun(ctx context.Context, tr domain.SagaTrigger, lo
 		if err := d.Publisher.PublishSagaAdvance(ctx, run.ID.String()); err != nil {
 			return err
 		}
+	}
+
+	if recErr := d.S.RecordTriggerFire(ctx, tr.ID, tr.WorkflowID, &run.ID, ""); recErr != nil {
+		logger.Warn().Err(recErr).Str("trigger_id", tr.ID.String()).Msg("cron dispatcher: record trigger fire")
 	}
 
 	return nil

@@ -466,3 +466,96 @@ func TestTriggerDispatcher_InvalidEntrypoint_SkipsTrigger(t *testing.T) {
 		t.Errorf("expected 0 publishes for invalid entrypoint, got %d", len(pub.runs))
 	}
 }
+
+func TestTriggerDispatcher_SetsTriggerID(t *testing.T) {
+	trigID := uuid.New()
+	def := minDef("wf-order")
+	trig := domain.SagaTrigger{
+		ID:          trigID,
+		TriggerType: domain.TriggerRecordTransition,
+		WorkflowID:  "wf-order",
+		Version:     1,
+		Config: map[string]any{
+			"record_type": "order",
+			"from_state":  "new",
+			"to_state":    "open",
+		},
+		Enabled: true,
+	}
+	d, s, pub := makeDispatcher(t, &def, []domain.SagaTrigger{trig})
+
+	ctx := context.Background()
+	err := d.Dispatch(ctx, EventDelivery{
+		Topic: "example.record.transitioned.order",
+		Body:  triggerBody(t, "order", "new", "open", nil),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(pub.runs) != 1 {
+		t.Fatalf("want 1 publish, got %d", len(pub.runs))
+	}
+
+	runID, err := uuid.Parse(pub.runs[0])
+	if err != nil {
+		t.Fatalf("published run ID is not a UUID: %v", err)
+	}
+	run, err := s.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if run.TriggerID == nil {
+		t.Fatal("run.TriggerID is nil, want it set")
+	}
+	if *run.TriggerID != trigID {
+		t.Errorf("TriggerID = %v, want %v", *run.TriggerID, trigID)
+	}
+}
+
+func TestTriggerDispatcher_RecordsTriggerFire(t *testing.T) {
+	trigID := uuid.New()
+	def := minDef("wf-order")
+	trig := domain.SagaTrigger{
+		ID:          trigID,
+		TriggerType: domain.TriggerRecordTransition,
+		WorkflowID:  "wf-order",
+		Version:     1,
+		Config: map[string]any{
+			"record_type": "order",
+			"from_state":  "new",
+			"to_state":    "open",
+		},
+		Enabled: true,
+	}
+	d, s, pub := makeDispatcher(t, &def, []domain.SagaTrigger{trig})
+
+	ctx := context.Background()
+	err := d.Dispatch(ctx, EventDelivery{
+		Topic: "example.record.transitioned.order",
+		Body:  triggerBody(t, "order", "new", "open", nil),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(pub.runs) != 1 {
+		t.Fatalf("want 1 publish, got %d", len(pub.runs))
+	}
+
+	fires := s.TriggerFires()
+	if len(fires) != 1 {
+		t.Fatalf("want 1 trigger fire row, got %d", len(fires))
+	}
+	fire := fires[0]
+	if fire.TriggerID != trigID {
+		t.Errorf("TriggerID = %v, want %v", fire.TriggerID, trigID)
+	}
+	if fire.WorkflowID != "wf-order" {
+		t.Errorf("WorkflowID = %q, want %q", fire.WorkflowID, "wf-order")
+	}
+	if fire.ResultingRunID == nil {
+		t.Fatal("ResultingRunID is nil, want it set")
+	}
+	if fire.Error != "" {
+		t.Errorf("Error = %q, want empty", fire.Error)
+	}
+}
