@@ -28,12 +28,16 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
+	"github.com/Bugs5382/go-saga-orchestration/clock"
 	"github.com/Bugs5382/go-saga-orchestration/domain"
+	"github.com/Bugs5382/go-saga-orchestration/engine"
+	"github.com/Bugs5382/go-saga-orchestration/licensing"
 	"github.com/Bugs5382/go-saga-orchestration/store"
 )
 
@@ -44,12 +48,14 @@ import (
 //	GET    /api/v1/triggers/{id}  — get one
 //	DELETE /api/v1/triggers/{id}  — remove
 type TriggerHandler struct {
-	S store.Store
+	S         store.Store
+	Licensing licensing.Resolver
+	Clock     clock.Clock
 }
 
 // NewTriggerHandler constructs the handler.
-func NewTriggerHandler(s store.Store) *TriggerHandler {
-	return &TriggerHandler{S: s}
+func NewTriggerHandler(s store.Store, lr licensing.Resolver, clk clock.Clock) *TriggerHandler {
+	return &TriggerHandler{S: s, Licensing: lr, Clock: clk}
 }
 
 // triggerCreateReq is the body of POST /api/v1/triggers.
@@ -101,6 +107,30 @@ func (h *TriggerHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Cron-specific: validate schedule expression and check license.
+	var cronNextFireAt *time.Time
+	if body.TriggerType == domain.TriggerCron {
+		expr, _ := body.Config["schedule"].(string)
+		sched, err := engine.ParseSchedule(expr)
+		if err != nil {
+			WriteError(w, http.StatusBadRequest, CodeBadRequest, "invalid cron schedule")
+			return
+		}
+		var tenantID *uuid.UUID
+		if body.TenantID != nil && *body.TenantID != "" {
+			if u, parseErr := uuid.Parse(*body.TenantID); parseErr == nil {
+				tenantID = &u
+			}
+		}
+		ok, err := h.Licensing.IsFeatureEnabled(r.Context(), tenantID, engine.FeatureCronTriggers, nil)
+		if err != nil || !ok {
+			WriteError(w, http.StatusForbidden, CodeForbidden, "cron triggers not licensed")
+			return
+		}
+		next := sched.Next(h.Clock.Now())
+		cronNextFireAt = &next
+	}
+
 	// Build domain object — ignore any ID from body (server assigns).
 	trigger := domain.SagaTrigger{
 		TriggerType: body.TriggerType,
@@ -115,6 +145,7 @@ func (h *TriggerHandler) Create(w http.ResponseWriter, r *http.Request) {
 			trigger.TenantID = &u
 		}
 	}
+	trigger.NextFireAt = cronNextFireAt
 
 	id, err := h.S.UpsertTrigger(r.Context(), trigger)
 	if err != nil {

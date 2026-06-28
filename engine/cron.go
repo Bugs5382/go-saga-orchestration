@@ -1,4 +1,4 @@
-package api
+package engine
 
 /*
 MIT License
@@ -23,19 +23,10 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 
-// Error codes used in the JSON error envelope (the `error` field written by
-// WriteError). Stable, machine-readable identifiers shared across handlers.
-const (
-	CodeBadRequest    = "bad_request"
-	CodeNotFound      = "not_found"
-	CodeForbidden     = "forbidden"
-	CodeInternal      = "internal"
-	CodeInvalidConfig = "invalid_config"
-	CodePublishFailed = "publish_failed"
-	CodeUnprocessable = "unprocessable"
-	CodeConflict      = "conflict"
-)
+import cron "github.com/robfig/cron/v3"
 
-// genericInternalMessage is returned to clients on 5xx. The real error is
-// logged server-side; never echo err.Error() to the caller on internal faults.
-const genericInternalMessage = "internal error"
+// ParseSchedule parses a standard 5-field cron expression (and @descriptors).
+// Granularity is one minute; sub-minute cadences are out of scope.
+func ParseSchedule(expr string) (cron.Schedule, error) {
+	return cron.ParseStandard(expr)
+}

@@ -1,4 +1,4 @@
-package api
+package engine
 
 /*
 MIT License
@@ -23,19 +23,26 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 
-// Error codes used in the JSON error envelope (the `error` field written by
-// WriteError). Stable, machine-readable identifiers shared across handlers.
-const (
-	CodeBadRequest    = "bad_request"
-	CodeNotFound      = "not_found"
-	CodeForbidden     = "forbidden"
-	CodeInternal      = "internal"
-	CodeInvalidConfig = "invalid_config"
-	CodePublishFailed = "publish_failed"
-	CodeUnprocessable = "unprocessable"
-	CodeConflict      = "conflict"
+import (
+	"testing"
+	"time"
 )
 
-// genericInternalMessage is returned to clients on 5xx. The real error is
-// logged server-side; never echo err.Error() to the caller on internal faults.
-const genericInternalMessage = "internal error"
+func TestParseSchedule_NextHourly(t *testing.T) {
+	sched, err := ParseSchedule("0 * * * *") // top of every hour
+	if err != nil {
+		t.Fatal(err)
+	}
+	from := time.Date(2026, 6, 27, 12, 30, 0, 0, time.UTC)
+	got := sched.Next(from)
+	want := time.Date(2026, 6, 27, 13, 0, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Fatalf("Next = %s, want %s", got, want)
+	}
+}
+
+func TestParseSchedule_Invalid(t *testing.T) {
+	if _, err := ParseSchedule("not a cron"); err == nil {
+		t.Fatal("expected error for invalid expression")
+	}
+}

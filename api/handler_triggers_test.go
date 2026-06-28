@@ -25,14 +25,19 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
+	"github.com/Bugs5382/go-saga-orchestration/clock"
 	"github.com/Bugs5382/go-saga-orchestration/domain"
+	"github.com/Bugs5382/go-saga-orchestration/licensing"
 	"github.com/Bugs5382/go-saga-orchestration/store/memory"
 )
 
@@ -63,12 +68,19 @@ func newTriggerRouter(h *TriggerHandler) *chi.Mux {
 	return r
 }
 
+// newTestHandler builds a TriggerHandler wired with the in-memory store,
+// StubAllowAll licensing, and a FakeClock pinned to a fixed instant.
+func newTestHandler() (*TriggerHandler, *chi.Mux) {
+	s := memory.New()
+	clk := clock.NewFakeClock(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	h := NewTriggerHandler(s, licensing.StubAllowAll{}, clk)
+	return h, newTriggerRouter(h)
+}
+
 // ---- Create ---------------------------------------------------------------
 
 func TestTriggerHandler_Create_Valid(t *testing.T) {
-	s := memory.New()
-	h := NewTriggerHandler(s)
-	r := newTriggerRouter(h)
+	_, r := newTestHandler()
 
 	body, _ := json.Marshal(validRecordTransitionBody())
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/triggers", bytes.NewReader(body))
@@ -95,9 +107,7 @@ func TestTriggerHandler_Create_Valid(t *testing.T) {
 }
 
 func TestTriggerHandler_Create_MissingTriggerType(t *testing.T) {
-	s := memory.New()
-	h := NewTriggerHandler(s)
-	r := newTriggerRouter(h)
+	_, r := newTestHandler()
 
 	b := validRecordTransitionBody()
 	delete(b, "trigger_type")
@@ -112,9 +122,7 @@ func TestTriggerHandler_Create_MissingTriggerType(t *testing.T) {
 }
 
 func TestTriggerHandler_Create_MissingWorkflowID(t *testing.T) {
-	s := memory.New()
-	h := NewTriggerHandler(s)
-	r := newTriggerRouter(h)
+	_, r := newTestHandler()
 
 	b := validRecordTransitionBody()
 	delete(b, "workflow_id")
@@ -129,9 +137,7 @@ func TestTriggerHandler_Create_MissingWorkflowID(t *testing.T) {
 }
 
 func TestTriggerHandler_Create_VersionZero(t *testing.T) {
-	s := memory.New()
-	h := NewTriggerHandler(s)
-	r := newTriggerRouter(h)
+	_, r := newTestHandler()
 
 	b := validRecordTransitionBody()
 	b["version"] = 0
@@ -146,9 +152,7 @@ func TestTriggerHandler_Create_VersionZero(t *testing.T) {
 }
 
 func TestTriggerHandler_Create_NilConfig(t *testing.T) {
-	s := memory.New()
-	h := NewTriggerHandler(s)
-	r := newTriggerRouter(h)
+	_, r := newTestHandler()
 
 	// Omit config entirely — json.Unmarshal leaves it nil.
 	raw := `{"trigger_type":"record_transition","workflow_id":"w","version":1,"enabled":true,"created_by":"admin"}`
@@ -162,9 +166,7 @@ func TestTriggerHandler_Create_NilConfig(t *testing.T) {
 }
 
 func TestTriggerHandler_Create_RecordTransition_MissingRecordType(t *testing.T) {
-	s := memory.New()
-	h := NewTriggerHandler(s)
-	r := newTriggerRouter(h)
+	_, r := newTestHandler()
 
 	b := validRecordTransitionBody()
 	cfg := b["config"].(map[string]any)
@@ -180,9 +182,7 @@ func TestTriggerHandler_Create_RecordTransition_MissingRecordType(t *testing.T) 
 }
 
 func TestTriggerHandler_Create_RecordTransition_MissingFromState(t *testing.T) {
-	s := memory.New()
-	h := NewTriggerHandler(s)
-	r := newTriggerRouter(h)
+	_, r := newTestHandler()
 
 	b := validRecordTransitionBody()
 	cfg := b["config"].(map[string]any)
@@ -198,9 +198,7 @@ func TestTriggerHandler_Create_RecordTransition_MissingFromState(t *testing.T) {
 }
 
 func TestTriggerHandler_Create_RecordTransition_MissingToState(t *testing.T) {
-	s := memory.New()
-	h := NewTriggerHandler(s)
-	r := newTriggerRouter(h)
+	_, r := newTestHandler()
 
 	b := validRecordTransitionBody()
 	cfg := b["config"].(map[string]any)
@@ -216,9 +214,7 @@ func TestTriggerHandler_Create_RecordTransition_MissingToState(t *testing.T) {
 }
 
 func TestTriggerHandler_Create_MissingCreatedBy(t *testing.T) {
-	s := memory.New()
-	h := NewTriggerHandler(s)
-	r := newTriggerRouter(h)
+	_, r := newTestHandler()
 
 	b := validRecordTransitionBody()
 	delete(b, "created_by")
@@ -233,9 +229,7 @@ func TestTriggerHandler_Create_MissingCreatedBy(t *testing.T) {
 }
 
 func TestTriggerHandler_Create_IgnoresBodyID(t *testing.T) {
-	s := memory.New()
-	h := NewTriggerHandler(s)
-	r := newTriggerRouter(h)
+	_, r := newTestHandler()
 
 	// Even if caller sends an id field, the server ignores it and assigns its own.
 	b := validRecordTransitionBody()
@@ -258,9 +252,7 @@ func TestTriggerHandler_Create_IgnoresBodyID(t *testing.T) {
 // ---- Get ------------------------------------------------------------------
 
 func TestTriggerHandler_Get_Existing(t *testing.T) {
-	s := memory.New()
-	h := NewTriggerHandler(s)
-	r := newTriggerRouter(h)
+	_, r := newTestHandler()
 
 	// Create one.
 	body, _ := json.Marshal(validRecordTransitionBody())
@@ -292,9 +284,7 @@ func TestTriggerHandler_Get_Existing(t *testing.T) {
 }
 
 func TestTriggerHandler_Get_Unknown(t *testing.T) {
-	s := memory.New()
-	h := NewTriggerHandler(s)
-	r := newTriggerRouter(h)
+	_, r := newTestHandler()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/triggers/00000000-0000-0000-0000-000000000099", nil)
 	w := httptest.NewRecorder()
@@ -308,9 +298,7 @@ func TestTriggerHandler_Get_Unknown(t *testing.T) {
 // ---- List -----------------------------------------------------------------
 
 func TestTriggerHandler_List_Unfiltered(t *testing.T) {
-	s := memory.New()
-	h := NewTriggerHandler(s)
-	r := newTriggerRouter(h)
+	_, r := newTestHandler()
 
 	// Insert two triggers.
 	for i := 0; i < 2; i++ {
@@ -340,9 +328,7 @@ func TestTriggerHandler_List_Unfiltered(t *testing.T) {
 }
 
 func TestTriggerHandler_List_FilterByType(t *testing.T) {
-	s := memory.New()
-	h := NewTriggerHandler(s)
-	r := newTriggerRouter(h)
+	_, r := newTestHandler()
 
 	// Insert one record_transition trigger.
 	body, _ := json.Marshal(validRecordTransitionBody())
@@ -387,9 +373,7 @@ func TestTriggerHandler_List_FilterByType(t *testing.T) {
 }
 
 func TestTriggerHandler_List_FilterByEnabled(t *testing.T) {
-	s := memory.New()
-	h := NewTriggerHandler(s)
-	r := newTriggerRouter(h)
+	_, r := newTestHandler()
 
 	// Insert one enabled trigger.
 	enabledBody := validRecordTransitionBody()
@@ -452,9 +436,7 @@ func TestTriggerHandler_List_FilterByEnabled(t *testing.T) {
 // ---- Delete ---------------------------------------------------------------
 
 func TestTriggerHandler_Delete_ThenGet404(t *testing.T) {
-	s := memory.New()
-	h := NewTriggerHandler(s)
-	r := newTriggerRouter(h)
+	_, r := newTestHandler()
 
 	// Create.
 	body, _ := json.Marshal(validRecordTransitionBody())
@@ -485,9 +467,7 @@ func TestTriggerHandler_Delete_ThenGet404(t *testing.T) {
 }
 
 func TestTriggerHandler_Delete_Unknown(t *testing.T) {
-	s := memory.New()
-	h := NewTriggerHandler(s)
-	r := newTriggerRouter(h)
+	_, r := newTestHandler()
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/triggers/00000000-0000-0000-0000-000000000099", nil)
 	w := httptest.NewRecorder()
@@ -495,5 +475,89 @@ func TestTriggerHandler_Delete_Unknown(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("delete unknown status = %d, want 404", w.Code)
+	}
+}
+
+// ---- Cron trigger create ---------------------------------------------------
+
+// stubDenyAll is a licensing.Resolver that always denies every feature.
+type stubDenyAll struct{}
+
+func (stubDenyAll) IsFeatureEnabled(_ context.Context, _ *uuid.UUID, _ string, _ map[string]bool) (bool, error) {
+	return false, nil
+}
+
+func validCronBody() map[string]any {
+	return map[string]any{
+		"trigger_type": "cron",
+		"workflow_id":  "wf",
+		"version":      1,
+		"config":       map[string]any{"schedule": "* * * * *"},
+		"enabled":      true,
+		"created_by":   "admin",
+	}
+}
+
+func TestTriggerHandler_Create_Cron_InvalidSchedule(t *testing.T) {
+	_, r := newTestHandler()
+
+	b := validCronBody()
+	b["config"] = map[string]any{"schedule": "nope"}
+	body, _ := json.Marshal(b)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/triggers", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTriggerHandler_Create_Cron_Unlicensed(t *testing.T) {
+	s := memory.New()
+	clk := clock.NewFakeClock(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	h := NewTriggerHandler(s, stubDenyAll{}, clk)
+	r := newTriggerRouter(h)
+
+	body, _ := json.Marshal(validCronBody())
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/triggers", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("want 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTriggerHandler_Create_Cron_InitializesNextFireAt(t *testing.T) {
+	fixedNow := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	s := memory.New()
+	clk := clock.NewFakeClock(fixedNow)
+	h := NewTriggerHandler(s, licensing.StubAllowAll{}, clk)
+	r := newTriggerRouter(h)
+
+	body, _ := json.Marshal(validCronBody())
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/triggers", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("want 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp domain.SagaTrigger
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.NextFireAt == nil {
+		t.Fatal("next_fire_at should be set for cron trigger, got nil")
+	}
+	// "* * * * *" fires every minute; next after 12:00:00 is 12:01:00.
+	want := time.Date(2026, 1, 1, 12, 1, 0, 0, time.UTC)
+	if !resp.NextFireAt.Equal(want) {
+		t.Errorf("next_fire_at = %v, want %v", resp.NextFireAt, want)
 	}
 }

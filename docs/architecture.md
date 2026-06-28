@@ -176,6 +176,20 @@ A `SagaTrigger` binds an external event to a workflow. v1 supports one `TriggerT
 
 Per-trigger failures are logged and skipped; the first store/publish error is returned. CRUD is exposed via `/api/v1/triggers`; some first-party triggers are seeded by migrations.
 
+### Cron triggers (`domain/trigger.go`, `engine/cron_dispatcher.go`)
+A cron trigger is a `SagaTrigger` with `trigger_type: cron`. Its `config` map carries:
+- `schedule` (required) — a standard five-field cron expression (`* * * * *`) or a `@`-descriptor (`@hourly`, `@daily`, etc.). Granularity is one minute; sub-minute cadences are not supported (tracked separately).
+- `entrypoint` (optional) — a named entry point in the target workflow definition; resolves the same way as `config.entrypoint` on event triggers.
+- `input` (optional) — a JSON-compatible map injected as the run's start inputs.
+
+The `CronDispatcher` polls on a ~1-second tick. On each tick it calls `ListDueCronTriggers` (triggers whose `next_fire_at ≤ now`) and attempts to claim each one via `ClaimCronFire` — a compare-and-swap on `next_fire_at` guarded by the row's current value. Exactly one engine pod wins the claim per window; pods that lose the race silently skip. On a successful claim the dispatcher creates a `SagaRun` and publishes `saga.advance`. The `next_fire_at` is advanced to the next schedule slot and `last_fired_at` is recorded.
+
+**Missed-fire behavior.** If all engine pods are down when a scheduled window elapses, the trigger fires once on the next tick after they come back. There is no backfill of missed windows.
+
+**License gate.** Cron triggers are gated by the `wf.cron_triggers` feature flag, checked at both create time (REST) and fire time (dispatcher). The `wf.cron_triggers` feature is not part of the verb `GroupToFeature` map; it is checked directly against the license resolver.
+
+**Management.** Cron triggers are created, listed, and deleted through the existing `/api/v1/triggers` REST endpoints. `POST /api/v1/triggers` with `trigger_type: cron` and a valid `config.schedule` initializes `next_fire_at` to the next schedule tick after the current time (so the first run fires on schedule, not immediately) and enables the trigger.
+
 ### Signals (`domain/signal.go`, `api/handler_signals.go`)
 A `SagaSignal` is an external message addressed to a specific run by name. `POST /api/v1/sagas/{run_id}/signal/{name}` appends the signal row, then calls `TryConsumeAwaitedSignal(run, name)`. If the run was paused awaiting exactly that signal, it consumes it (clearing markers, setting `wakeup_at=now`) and publishes `saga.advance` → `202`. If the run was not awaiting it → `409` (recorded but not matched). Signals wake `wait_for_signal`, and (indirectly) `manual_approval`/`collect_input`, which await the synthetic signal `user_task.<task_id>.submitted`.
 

@@ -39,6 +39,9 @@ const (
 	// arrives matching the trigger's config.record_type, config.from_state,
 	// config.to_state.
 	TriggerRecordTransition TriggerType = "record_transition"
+	// TriggerCron fires on a schedule defined by a cron expression in
+	// config.schedule (standard 5-field cron syntax, UTC).
+	TriggerCron TriggerType = "cron"
 )
 
 // SagaTrigger persists the binding between an external signal and a
@@ -56,4 +59,7 @@ type SagaTrigger struct {
 	TenantID  *uuid.UUID
 	CreatedAt time.Time
 	CreatedBy string
+	// Cron scheduling bookkeeping (cron triggers only).
+	NextFireAt  *time.Time `json:"next_fire_at,omitempty"`
+	LastFiredAt *time.Time `json:"last_fired_at,omitempty"`
 }

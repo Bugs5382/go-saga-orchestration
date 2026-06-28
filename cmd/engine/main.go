@@ -117,6 +117,19 @@ func main() {
 		}
 	}()
 
+	cronDispatcher := &engine.CronDispatcher{
+		S:         st,
+		Publisher: pub,
+		Clock:     clock.SystemClock{},
+		Tick:      time.Second,
+		Licensing: lr,
+	}
+	go func() {
+		if err := cronDispatcher.Run(ctx); err != nil && err != context.Canceled {
+			log.Error().Err(err).Msg("cron dispatcher stopped")
+		}
+	}()
+
 	dispatcher := &engine.TriggerDispatcher{S: st, Publisher: pub}
 	sub := &engine.EventSubscriber{S: st, Publisher: pub, Dispatcher: dispatcher}
 	// Production: go sub.RunRMQ(ctx, conn, "go-saga-orchestration-events-"+podID)

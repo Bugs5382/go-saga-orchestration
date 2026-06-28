@@ -142,6 +142,13 @@ type Store interface {
 	GetTrigger(ctx context.Context, id uuid.UUID) (domain.SagaTrigger, error)
 	ListTriggers(ctx context.Context, filter TriggerFilter) ([]domain.SagaTrigger, error)
 	DeleteTrigger(ctx context.Context, id uuid.UUID) error
+	// ListDueCronTriggers returns enabled cron triggers whose next_fire_at is at
+	// or before now, oldest first, capped at limit.
+	ListDueCronTriggers(ctx context.Context, now time.Time, limit int) ([]domain.SagaTrigger, error)
+	// ClaimCronFire atomically advances a cron trigger's next_fire_at from
+	// expectedNextFire to newNextFire (and stamps last_fired_at). Returns true
+	// iff this caller won the row — the single-fire guarantee across pods.
+	ClaimCronFire(ctx context.Context, id uuid.UUID, expectedNextFire, newNextFire time.Time) (bool, error)
 
 	// Action dispatch tracking.
 	// MarkAwaitingAction sets state=paused, records the dispatch key and attempt.

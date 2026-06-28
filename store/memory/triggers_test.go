@@ -26,6 +26,7 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -214,5 +215,51 @@ func TestTrigger_Delete_RemovesRow(t *testing.T) {
 	// Deleting a non-existent ID also returns ErrNotFound.
 	if err := s.DeleteTrigger(ctx, uuid.New()); err == nil {
 		t.Error("expected ErrNotFound for missing ID, got nil")
+	}
+}
+
+func TestListDueCronTriggers(t *testing.T) {
+	s := New()
+	ctx := context.Background()
+	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
+	due := now.Add(-time.Minute)
+	future := now.Add(time.Minute)
+	mk := func(enabled bool, fire time.Time) uuid.UUID {
+		id, _ := s.UpsertTrigger(ctx, domain.SagaTrigger{
+			TriggerType: domain.TriggerCron, WorkflowID: "wf", Version: 1,
+			Config: map[string]any{"schedule": "* * * * *"}, Enabled: enabled,
+			NextFireAt: &fire, CreatedBy: "t",
+		})
+		return id
+	}
+	dueID := mk(true, due)
+	mk(false, due)   // disabled -> excluded
+	mk(true, future) // not due -> excluded
+	got, err := s.ListDueCronTriggers(ctx, now, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != dueID {
+		t.Fatalf("want [%s], got %+v", dueID, got)
+	}
+}
+
+func TestClaimCronFire_SingleWinner(t *testing.T) {
+	s := New()
+	ctx := context.Background()
+	cur := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
+	next := cur.Add(time.Minute)
+	id, _ := s.UpsertTrigger(ctx, domain.SagaTrigger{
+		TriggerType: domain.TriggerCron, WorkflowID: "wf", Version: 1,
+		Config: map[string]any{"schedule": "* * * * *"}, Enabled: true,
+		NextFireAt: &cur, CreatedBy: "t",
+	})
+	won1, err := s.ClaimCronFire(ctx, id, cur, next)
+	if err != nil || !won1 {
+		t.Fatalf("first claim should win: won=%v err=%v", won1, err)
+	}
+	won2, err := s.ClaimCronFire(ctx, id, cur, next) // stale expected -> lose
+	if err != nil || won2 {
+		t.Fatalf("second claim on stale expected should lose: won=%v err=%v", won2, err)
 	}
 }
