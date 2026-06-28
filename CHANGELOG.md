@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.3.0 - 2026-06-28
+
+### What Changed 👀
+
+#### 🚀 Features
+
+- feat(engine): cron-scheduled workflow triggers @Bugs5382 (#68)
+- feat(deploy): publish container images and a Helm chart @Bugs5382 (#65)
+
+### Extra
+
+**Full Changelog**: https://github.com/Bugs5382/go-saga-orchestration/compare/v0.2.2...v0.3.0
+
 ## v0.2.2 - 2026-06-25
 
 ### What Changed 👀
