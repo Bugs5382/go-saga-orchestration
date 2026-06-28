@@ -1,0 +1,43 @@
+/**
+ * Bugs5382 brand theme (starting palette — to be generalized into the shared
+ * theme + per-owner variants in Bugs5382/project-template#57). Global Infima
+ * overrides.
+ */
+
+:root {
+  --ifm-color-primary: #4f46e5;
+  --ifm-color-primary-dark: #4338ca;
+  --ifm-color-primary-darker: #3730a3;
+  --ifm-color-primary-darkest: #312e81;
+  --ifm-color-primary-light: #6366f1;
+  --ifm-color-primary-lighter: #818cf8;
+  --ifm-color-primary-lightest: #a5b4fc;
+  --ifm-code-font-size: 95%;
+  --ifm-font-family-monospace: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --docusaurus-highlighted-code-line-bg: rgba(79, 70, 229, 0.1);
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #a5b4fc;
+  --ifm-color-primary-dark: #818cf8;
+  --ifm-color-primary-darker: #6366f1;
+  --ifm-color-primary-darkest: #4f46e5;
+  --ifm-color-primary-light: #c7d2fe;
+  --ifm-color-primary-lighter: #dde3fe;
+  --ifm-color-primary-lightest: #eef2ff;
+  --ifm-background-color: #0f1021;
+  --ifm-background-surface-color: #17182e;
+  --docusaurus-highlighted-code-line-bg: rgba(165, 180, 252, 0.15);
+}
+
+/* Brand accent on the navbar + a subtle hero gradient on the landing h1. */
+.navbar {
+  border-bottom: 2px solid var(--ifm-color-primary);
+}
+
+.markdown > h1:first-child {
+  background: linear-gradient(90deg, var(--ifm-color-primary), var(--ifm-color-primary-lighter));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
