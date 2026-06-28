@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "gosaga.fullname" . }}-config
+  labels:
+    {{- include "gosaga.labels" . | nindent 4 }}
+data:
+  WORKFLOW_API_PORT: {{ .Values.api.port | quote }}
+  WORKFLOW_ENGINE_GRPC_PORT: {{ .Values.engine.grpcPort | quote }}
+  STORE_TYPE: {{ .Values.store.type | quote }}
+  REDIS_RUN_TTL: {{ .Values.store.redisRunTTL | quote }}

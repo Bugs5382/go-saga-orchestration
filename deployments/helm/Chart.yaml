@@ -1,0 +1,12 @@
+apiVersion: v2
+name: go-saga-orchestration
+description: Deploys the go-saga-orchestration API and engine services on Kubernetes.
+type: application
+version: 0.2.2
+appVersion: "0.2.2"
+home: https://github.com/Bugs5382/go-saga-orchestration
+sources:
+  - https://github.com/Bugs5382/go-saga-orchestration
+maintainers:
+  - name: Shane
+    url: https://github.com/Bugs5382

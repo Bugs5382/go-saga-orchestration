@@ -1,0 +1,23 @@
+go-saga-orchestration is deployed.
+
+API (HTTP):     {{ include "gosaga.fullname" . }}-api:{{ .Values.api.port }}
+Engine (gRPC):  {{ include "gosaga.fullname" . }}-engine:{{ .Values.engine.grpcPort }}
+Store backend:  {{ .Values.store.type }}
+
+Both services require a reachable RabbitMQ and a store. Provide them via a Secret
+referenced by `connectionSecret` (keys: rabbitmq-url, and database-dsn or redis-url):
+
+  kubectl create secret generic gosaga-conn \
+    --from-literal=rabbitmq-url='amqp://user:pass@rabbitmq:5672/' \
+    --from-literal=database-dsn='postgres://user:pass@postgres:5432/saga?sslmode=require'
+
+  helm upgrade --install {{ .Release.Name }} <chart> --set connectionSecret=gosaga-conn
+{{- if not .Values.connectionSecret }}
+
+WARNING: connectionSecret is unset. Both pods will fail to start until RABBITMQ_URL
+(and the store connection) are supplied.
+{{- end }}
+
+Port-forward the API:
+  kubectl port-forward svc/{{ include "gosaga.fullname" . }}-api {{ .Values.api.port }}:{{ .Values.api.port }}
+  curl localhost:{{ .Values.api.port }}/health/ready
