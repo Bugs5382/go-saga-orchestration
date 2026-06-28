@@ -34,7 +34,7 @@ import (
 // registry routes attach via RegistryHandler; rule evaluation via RulesHandler;
 // trigger CRUD via TriggerHandler; live run inspector via SagaStreamHandler;
 // workflow stats via WorkflowHandler.
-func NewRouter(_ store.Store, sagas *SagaHandler, signals *SignalHandler, userTasks *UserTaskHandler, registryHandler *RegistryHandler, rulesHandler *RulesHandler, triggersHandler *TriggerHandler, streamHandler *SagaStreamHandler, workflows *WorkflowHandler) *chi.Mux {
+func NewRouter(_ store.Store, sagas *SagaHandler, signals *SignalHandler, userTasks *UserTaskHandler, registryHandler *RegistryHandler, rulesHandler *RulesHandler, triggersHandler *TriggerHandler, streamHandler *SagaStreamHandler, workflows *WorkflowHandler, actionResults *ActionResultHandler) *chi.Mux {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -49,6 +49,7 @@ func NewRouter(_ store.Store, sagas *SagaHandler, signals *SignalHandler, userTa
 		r.Get("/sagas/{id}", sagas.Get)
 		r.Post("/sagas/{run_id}/signal/{name}", signals.Post)
 		r.Post("/sagas/{run_id}/user_task/{task_id}/submit", userTasks.Submit)
+		r.Post("/sagas/{run_id}/actions/{step_id}/result", actionResults.Post)
 		r.Get("/sagas/{run_id}/stream", streamHandler.Stream)
 
 		r.Post("/registry/register", registryHandler.Register)

@@ -52,9 +52,13 @@ type Registry map[domain.StepType]RegistryEntry
 //
 // emitter is the EventEmitter used by emit_event steps. Pass nil in tests
 // that do not exercise emit_event — EmitEventVerb checks for nil.
-func Default(s store.Store, clk clock.Clock, sec secrets.Resolver, pub Publisher, actionPub ActionDispatchPublisher, emitter EventEmitter) Registry {
+func Default(s store.Store, clk clock.Clock, sec secrets.Resolver, pub Publisher, actionPub ActionDispatchPublisher, emitter EventEmitter, opts ...DefaultOption) Registry {
+	cfg := defaultConfig{}
+	for _, o := range opts {
+		o(&cfg)
+	}
 	return Registry{
-		domain.StepTypeAction:         {ActionVerb{S: s, Publisher: actionPub}, "common"},
+		domain.StepTypeAction:         {ActionVerb{S: s, Publisher: actionPub, HTTPDispatcher: cfg.httpDispatcher, RMQDispatcher: cfg.rmqDispatcher}, "common"},
 		domain.StepTypeNoop:           {NoopVerb{}, "common"},
 		domain.StepTypeSetVar:         {SetVarVerb{}, "common"},
 		domain.StepTypeTransform:      {TransformVerb{}, "common"},
@@ -85,4 +89,27 @@ func Default(s store.Store, clk clock.Clock, sec secrets.Resolver, pub Publisher
 		domain.StepTypeCancel:         {CancelVerb{S: s}, "loops_and_recovery"},
 		domain.StepTypeEmitEvent:      {EmitEventVerb{Emitter: emitter}, "events_and_signals"},
 	}
+}
+
+// defaultConfig holds the optional dependencies applied to Default via
+// DefaultOption. (issue #59)
+type defaultConfig struct {
+	httpDispatcher ActionHTTPDispatcher
+	rmqDispatcher  ActionRMQDispatcher
+}
+
+// DefaultOption configures optional verb dependencies (e.g. the http/rmq
+// action dispatchers) without breaking Default's positional signature.
+type DefaultOption func(*defaultConfig)
+
+// WithHTTPDispatcher wires the http action dispatcher for transport="http"
+// action registrations. (issue #59)
+func WithHTTPDispatcher(d ActionHTTPDispatcher) DefaultOption {
+	return func(c *defaultConfig) { c.httpDispatcher = d }
+}
+
+// WithRMQDispatcher wires the rmq action dispatcher for transport="rmq"
+// action registrations. (issue #59)
+func WithRMQDispatcher(d ActionRMQDispatcher) DefaultOption {
+	return func(c *defaultConfig) { c.rmqDispatcher = d }
 }

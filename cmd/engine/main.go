@@ -41,7 +41,9 @@ import (
 
 	"github.com/Bugs5382/go-saga-orchestration/clock"
 	"github.com/Bugs5382/go-saga-orchestration/engine"
+	"github.com/Bugs5382/go-saga-orchestration/engine/verbs"
 	"github.com/Bugs5382/go-saga-orchestration/internal/config"
+	"github.com/Bugs5382/go-saga-orchestration/internal/dispatch"
 	grpcsrv "github.com/Bugs5382/go-saga-orchestration/internal/grpc"
 	"github.com/Bugs5382/go-saga-orchestration/internal/logging"
 	"github.com/Bugs5382/go-saga-orchestration/internal/mq"
@@ -100,7 +102,13 @@ func main() {
 	sec := secrets.NewMemory(map[string]string{})
 	lr := licensing.StubAllowAll{}
 	mqEmitter := &mqEventEmitter{pub: pub}
-	coord := engine.NewCoordinator(st, pub, clk, sec, lr, pub, mqEmitter)
+	// Wire the optional dispatch-descriptor transports: http callbacks via the
+	// http dispatcher, rmq via the publisher's named-queue method. gRPC stays
+	// the zero-config default for actions with no descriptor. (issue #59)
+	httpDispatcher := dispatch.NewHTTPDispatcher()
+	coord := engine.NewCoordinator(st, pub, clk, sec, lr, pub, mqEmitter,
+		verbs.WithHTTPDispatcher(httpDispatcher),
+		verbs.WithRMQDispatcher(pub))
 
 	// Every engine pod runs the timer dispatcher. For multi-replica production
 	// deployments, consider leader-elected single fire via pg_try_advisory_lock

@@ -107,7 +107,7 @@ All 31 step types live in `engine/verbs/` (30 in the registry plus `end`, which 
 
 | Verb | Purpose | Key fields / notes |
 |------|---------|--------------------|
-| `action` | Dispatch a registered action to a worker over RabbitMQ, then pause awaiting the worker's gRPC reply. | `step.Action` = `"<service>.<name>"` (must contain a dot); `step.Inputs` forwarded verbatim. Bumps `current_attempt`, computes a SHA-256 idempotency key from (run, step, attempt), calls `MarkAwaitingAction`, publishes `ActionPayload` to `action.direct` with routing key = the action, returns `ErrSagaPaused`. License group `common`. Resumed by gRPC `CompleteAction`/`FailAction`. |
+| `action` | Dispatch a registered action to a worker over its declared transport, then pause awaiting the worker's result. | `step.Action` = `"<service>.<name>"` (must contain a dot); `step.Inputs` forwarded verbatim. Bumps `current_attempt`, computes a SHA-256 idempotency key from (run, step, attempt), calls `MarkAwaitingAction`, then dispatches the `ActionPayload` by the action's registered transport (see **Action dispatch routing** below), returns `ErrSagaPaused`. License group `common`. Resumed by `CompleteAction`/`FailAction` — over the gRPC stream for gRPC workers, or via the result-callback REST endpoint for http/rmq workers. |
 | `cancel` | Cancel a run. | `run_id` (optional string). No `run_id` (or `run_id` equal to the current run) → self-cancel: returns `ErrSagaCancelled` and the engine sets state `cancelled` (terminal); the run ends immediately. With a different `run_id` → cancels that target run (`UpdateRunState` → `cancelled`, appends `run.cancelled` event) and the current run continues to `Next`. `reason` (optional string) is available for logging. Group `loops_and_recovery`. |
 | `assert` | Fail the saga if a CEL expression is not true. | `expr` (required), `code` (optional, default `assertion_failed`). Evaluates against `run.Variables`; non-true → error `"<code>: <expr> is false"`. Group `common`. |
 | `collect_input` | Create a user task that **requires** a form and pause until submitted. | `assignee` (required), `form_schema` (required, non-empty), `due_in` (optional Go duration). Creates a `UserTask`, sets paused awaiting signal `user_task.<task_id>.submitted`, returns `ErrSagaPaused`. Group `human_interaction`. |
@@ -138,6 +138,20 @@ All 31 step types live in `engine/verbs/` (30 in the registry plus `end`, which 
 | `wait_until` | Pause until an absolute wall-clock instant. | `timestamp` (required RFC3339). Past timestamps clamp to `now` (wake next tick). `SetPausedWithWakeup`, returns `ErrSagaPaused`. Group `waits`. |
 | `webhook_emit` | POST a payload to an external URL (optionally async / HMAC-signed). | `url` (required), `body` (required, JSON), `secret_ref` (optional → `X-Webhook-Sig: sha256=<hmac>`), `timeout_s` (default 15), `headers`, `async` (default false — fire in a goroutine, ignore result), `out_var` (default `webhook_result`; sync writes `<out_var>_status`, async writes `<out_var>_async`). Group `external_io_advanced`. |
 | `while` | Evaluate a CEL condition and branch `continue`/`exit`, with a loop cap. | `condition` (required CEL), `max_iterations` (optional, default 100, hard cap 10000). Returns `{branch, _while.<step_id>.iter}`. Author wires `branches.continue` → loop body and `branches.exit` → after-loop; the body's last step loops back to this step. Group `loops_and_recovery`. |
+
+### Action dispatch routing (`domain.ActionRegistration` dispatch descriptor)
+
+An `ActionRegistration` may carry an optional **dispatch descriptor** — `Transport` (`grpc` | `http` | `rmq`) and `Address` — telling the coordinator *how* to reach the worker that runs the action. `Transport` empty or `grpc` is the zero-config default; `http`/`rmq` require a non-empty `Address` (a callback URL for `http`, a queue name for `rmq`). The fields persist in `definitions.action_registry` (columns `transport`, `address`, migration `009_action_dispatch_descriptor`) and flow through the registry REST surface unchanged.
+
+When the `action` verb runs it resolves the registration for `step.Action` (parsing `<service>.<name>`, taking the **latest registered version**) and routes by transport:
+
+- **grpc** (default, or no descriptor, or an unregistered action) — publishes `ActionPayload` to the `action.direct` exchange with routing key = the action. The worker is connected over the gRPC `ExecuteStep` stream.
+- **http** — POSTs the `ActionPayload` (JSON) to `Address` via `internal/dispatch.HTTPDispatcher`. A 2xx is "accepted", not "completed".
+- **rmq** — publishes the `ActionPayload` to the queue named by `Address` (default exchange, routing key = queue name) via `mq.Publisher.DispatchRMQQueue`.
+
+The http/rmq dispatchers are wired into the engine via `verbs.WithHTTPDispatcher` / `verbs.WithRMQDispatcher` options on `NewCoordinator`; omitting them leaves the gRPC-only default and makes an `http`/`rmq` action a hard error at dispatch time.
+
+**Result return.** gRPC workers reply over the `ExecuteStep` stream (`internal/grpc/server.go`). http/rmq workers have no return stream, so they report their result asynchronously over a transport-agnostic **result-callback REST endpoint**: `POST /api/v1/sagas/{run_id}/actions/{step_id}/result`. Its handler (`api/handler_action_result.go`) applies the same `CompleteAction` (success) / `FailAction` (failure) store hooks the gRPC server uses, preserving attempt handling and idempotency (a stale `attempt` is a no-op).
 
 License groups → feature flags are defined in `engine/verbs/license_groups.go` (`GroupToFeature`): `common`→(none), `observability`→`wf.observability`, `external_io_advanced`→`wf.external_io`, `waits`→`wf.timers`, `events_and_signals`→`wf.event_driven`, `human_interaction`→`wf.user_tasks`, `parallel_control`→`wf.parallel`, `loops_and_recovery`→`wf.loops_recovery`, `compositions`→`wf.compositions`.
 
