@@ -22,7 +22,6 @@ const config: Config = {
       'classic',
       {
         docs: {
-          routeBasePath: '/',
           sidebarPath: './sidebars.ts',
           editUrl:
             'https://github.com/Bugs5382/go-saga-orchestration/tree/main/website/',
@@ -54,8 +53,8 @@ const config: Config = {
         {
           title: 'Docs',
           items: [
-            {label: 'Getting started', to: '/getting-started'},
-            {label: 'Architecture', to: '/architecture'},
+            {label: 'Getting started', to: '/docs/getting-started'},
+            {label: 'Architecture', to: '/docs/architecture'},
           ],
         },
         {
