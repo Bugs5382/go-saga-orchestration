@@ -70,6 +70,8 @@ See [`examples/basic`](examples/basic) for a runnable standalone example, and [`
 
 ## 📚 Docs
 
+📖 **Documentation site:** <https://bugs5382.github.io/go-saga-orchestration/> — the searchable, versioned site (with the generated Go API reference) built from the `docs/` below.
+
 | Doc | What it covers |
 |---|---|
 | [`docs/verbs.md`](docs/verbs.md) | Complete reference for all 31 step types — inputs, outputs, license groups, and example links |

@@ -1,41 +1,39 @@
-# Website
+# Documentation site
 
-This website is built using [Docusaurus](https://docusaurus.io/), a modern static website generator.
+The go-saga-orchestration documentation site, built with [Docusaurus](https://docusaurus.io/).
+Published to GitHub Pages at <https://bugs5382.github.io/go-saga-orchestration/>.
 
-## Installation
-
-```bash
-yarn
-```
-
-## Local Development
+## Develop
 
 ```bash
-yarn start
+npm install
+npm start          # dev server at http://localhost:3000/go-saga-orchestration/
 ```
 
-This command starts a local development server and opens up a browser window. Most changes are reflected live without having to restart the server.
+`npm start`/`npm run build` run a `gen` step first (`npm run gen`) which:
+
+- generates the Go **API reference** from godoc into `docs/reference/` via
+  [`gomarkdoc`](https://github.com/princjef/gomarkdoc) (`scripts/gen-api.sh`), and
+- copies the repo `CHANGELOG.md` into `src/pages/changelog.md` (`scripts/sync-changelog.mjs`).
+
+Both outputs are generated (gitignored) — never hand-edit `docs/reference/` or
+`src/pages/changelog.md`.
 
 ## Build
 
 ```bash
-yarn build
+npm run build      # static output in build/
 ```
 
-This command generates static content into the `build` directory and can be served using any static contents hosting service.
+## Publishing
 
-## Deployment
+Publishing is automated, not manual — do **not** run `npm run deploy`. The
+`.github/workflows/docs-publish.yaml` workflow, on a published release, cuts a
+versioned snapshot (`docusaurus docs:version <tag>`), commits it to `main`, and
+deploys to GitHub Pages. See the repo's release flow.
 
-Using SSH:
+## Theme
 
-```bash
-USE_SSH=true yarn deploy
-```
-
-Not using SSH:
-
-```bash
-GIT_USER=<Your GitHub username> yarn deploy
-```
-
-If you are using GitHub pages for hosting, this command is a convenient way to build the website and push to the `gh-pages` branch.
+The site uses the the-rabbit-hole brand (dark, monochrome body accent, Oswald
+headings; sky-blue is reserved for the header component). The shared theme will
+move into `the-rabbit-hole-tech/docs-theme` and be consumed here.
