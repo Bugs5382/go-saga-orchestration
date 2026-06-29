@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.4.0 - 2026-06-29
+
+### What Changed 👀
+
+#### 🚀 Features
+
+- feat(engine): run-level Cancel(runID) API + persist failed-run error @Bugs5382 (#81)
+
+### Extra
+
+**Full Changelog**: https://github.com/Bugs5382/go-saga-orchestration/compare/v0.3.0...v0.4.0
+
 ## v0.3.0 - 2026-06-29
 
 ### What Changed 👀
