@@ -44,7 +44,8 @@ const config: Config = {
       items: [
         {type: 'docSidebar', sidebarId: 'docsSidebar', position: 'left', label: 'Docs'},
         {to: '/changelog', label: 'Changelog', position: 'left'},
-        {type: 'docsVersionDropdown', position: 'right'},
+        // Re-add {type: 'docsVersionDropdown'} once the first release cuts a
+        // versioned snapshot — with only the current docs it just reads "Next".
         {
           href: 'https://github.com/Bugs5382/go-saga-orchestration',
           label: 'GitHub',
