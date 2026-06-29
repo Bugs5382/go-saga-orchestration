@@ -24,11 +24,16 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 
 import (
+	"context"
+	"errors"
 	"math"
 	"math/rand"
 	"time"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/Bugs5382/go-saga-orchestration/domain"
+	"github.com/Bugs5382/go-saga-orchestration/engine/verbs"
 )
 
 // DefaultRetryPolicy returns the spec default per § 3.4.
@@ -61,4 +66,57 @@ func Backoff(p domain.RetryPolicy, attempt int, jitter bool) time.Duration {
 		base = base * (1 + noise)
 	}
 	return time.Duration(base) * time.Millisecond
+}
+
+// executeStep dispatches a step to its handler, applying the step's RetryPolicy
+// to synchronous errors. A nil step.Retry means "run once". On a retryable
+// error it waits Backoff(policy, attempt, jitter) using the injected clock — so
+// FakeClock can drive the wait deterministically in tests — then re-dispatches,
+// up to policy.MaxAttempts total attempts. A paused or cancelled sentinel is
+// returned immediately and never retried; those are not failures. The last
+// attempt's result/error is returned to the caller, which then runs the normal
+// try_catch / compensation path on a final error.
+func (c *Coordinator) executeStep(ctx context.Context, run domain.SagaRun, step domain.Step, handler verbs.Handler) (map[string]any, error) {
+	maxAttempts := 1
+	policy := domain.RetryPolicy{}
+	if step.Retry != nil {
+		policy = *step.Retry
+		if policy.MaxAttempts > 1 {
+			maxAttempts = policy.MaxAttempts
+		}
+	}
+
+	var result map[string]any
+	var err error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		result, err = handler.Execute(ctx, run, step)
+		if err == nil {
+			return result, nil
+		}
+		// Paused / cancelled are control signals, not failures: never retry them.
+		if isControlSignal(err) {
+			return result, err
+		}
+		// Out of attempts: surface the final error to the caller.
+		if attempt == maxAttempts-1 {
+			return result, err
+		}
+		// Record the failed attempt, then wait the backoff before retrying.
+		_ = c.store.AppendEvent(ctx, domain.NewEvent(run.ID, step.ID, attempt+1, domain.EventStepFailed, "engine-retry"))
+		wait := Backoff(policy, attempt, policy.Jitter)
+		log.Debug().Str("run_id", run.ID.String()).Str("step_id", step.ID).
+			Int("attempt", attempt+1).Dur("backoff", wait).Err(err).Msg("step failed; retrying")
+		select {
+		case <-ctx.Done():
+			return result, ctx.Err()
+		case <-c.clock.After(wait):
+		}
+	}
+	return result, err
+}
+
+// isControlSignal reports whether err is a non-failure control sentinel
+// (paused or cancelled) that must bypass the retry loop.
+func isControlSignal(err error) bool {
+	return errors.Is(err, verbs.ErrSagaPaused) || errors.Is(err, verbs.ErrSagaCancelled)
 }
