@@ -107,6 +107,17 @@
   border-top: 1px solid #444444;
 }
 
+/* Center the three footer columns as a group instead of stretching them. */
+.footer__links {
+  justify-content: center;
+}
+.footer__col {
+  flex: 0 0 14rem;
+  max-width: 14rem;
+  padding: 0 1rem;
+  text-align: center;
+}
+
 /* Neutral (monochrome) filled primary buttons on the dark theme. */
 [data-theme='dark'] .button--primary {
   --ifm-button-background-color: #444444;
