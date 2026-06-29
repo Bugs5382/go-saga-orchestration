@@ -1,0 +1,130 @@
+/**
+ * the-rabbit-hole brand theme (dark-first), sourced from the parent design system
+ * the-rabbit-hole-tech/ux-ui (daisyUI "rabbithole" theme): surfaces #303030/#222/#121,
+ * text #c9c9c9, sky-blue accent #90c1f3, Oswald headings. Generalized into the shared
+ * theme + per-owner variants in Bugs5382/project-template#57.
+ */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Oswald:wght@400;500;600;700&display=swap');
+
+:root {
+  /* Monochrome accent (links, headings). Sky-blue is reserved for the
+     the-rabbit-hole header component, not a body token. Light mode: dark grey. */
+  --ifm-color-primary: #555555;
+  --ifm-color-primary-dark: #4d4d4d;
+  --ifm-color-primary-darker: #494949;
+  --ifm-color-primary-darkest: #3c3c3c;
+  --ifm-color-primary-light: #5d5d5d;
+  --ifm-color-primary-lighter: #616161;
+  --ifm-color-primary-lightest: #6e6e6e;
+  --ifm-code-font-size: 95%;
+  --ifm-global-radius: 0.5rem;
+  --ifm-font-family-base: 'Inter', system-ui, -apple-system, sans-serif;
+  --ifm-heading-font-family: 'Oswald', sans-serif;
+  --ifm-font-family-monospace: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --docusaurus-highlighted-code-line-bg: rgba(47, 111, 179, 0.1);
+}
+
+/* the-rabbit-hole dark palette (the brand default). */
+[data-theme='dark'] {
+  /* Monochrome grey accent (links, headings); sky-blue is header-only. */
+  --ifm-color-primary: #a8a8a8;
+  --ifm-color-primary-dark: #9b9b9b;
+  --ifm-color-primary-darker: #949494;
+  --ifm-color-primary-darkest: #7c7c7c;
+  --ifm-color-primary-light: #b5b5b5;
+  --ifm-color-primary-lighter: #bcbcbc;
+  --ifm-color-primary-lightest: #cfcfcf;
+  --ifm-background-color: #222222;
+  --ifm-background-surface-color: #303030;
+  --ifm-navbar-background-color: #121212;
+  --ifm-footer-background-color: #0b1119;
+  --ifm-color-content: #c9c9c9;
+  --ifm-heading-color: #ffffff;
+  --ifm-color-success: #84a82a;
+  --ifm-color-warning: #d99a2b;
+  --ifm-color-danger: #c0392b;
+  --docusaurus-highlighted-code-line-bg: rgba(144, 193, 243, 0.16);
+}
+
+/* Version callout (the "next"/unreleased banner) and the version chip use the
+   sky-blue tone on a dark surface — an intentional exception to the
+   header-only sky-blue rule (operator request), and far more legible than the
+   default light-grey chip. */
+.theme-doc-version-banner {
+  --ifm-alert-background-color: #15243b;
+  --ifm-alert-background-color-highlight: rgba(144, 193, 243, 0.12);
+  --ifm-alert-foreground-color: #d7e8fc;
+  --ifm-alert-border-color: #90c1f3;
+}
+.theme-doc-version-banner a {
+  color: #90c1f3;
+}
+.theme-doc-version-badge {
+  background-color: #444444;
+  border: 1px solid #5b5b5b;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* Collapse toggle for the right-side table of contents (see src/theme/TOC). */
+.tocCollapsibleToggle {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0 0 0.5rem;
+  margin: 0;
+  background: none;
+  border: none;
+  color: var(--ifm-color-content-secondary);
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.tocCollapsibleToggle:hover {
+  color: var(--ifm-heading-color);
+}
+.tocChevron {
+  display: inline-block;
+  border: solid currentColor;
+  border-width: 0 1.5px 1.5px 0;
+  padding: 2.5px;
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+.tocChevronOpen {
+  transform: rotate(45deg);
+}
+
+.navbar {
+  border-bottom: 1px solid #444444;
+}
+
+.footer {
+  border-top: 1px solid #444444;
+}
+
+/* Center the three footer columns as a group instead of stretching them. */
+.footer__links {
+  justify-content: space-evenly;
+}
+.footer__col {
+  flex: 0 0 14rem;
+  max-width: 14rem;
+  text-align: center;
+}
+
+/* Neutral (monochrome) filled primary buttons on the dark theme. */
+[data-theme='dark'] .button--primary {
+  --ifm-button-background-color: #444444;
+  --ifm-button-border-color: #444444;
+  color: #ffffff;
+}
+[data-theme='dark'] .button--primary:hover {
+  --ifm-button-background-color: #565656;
+  --ifm-button-border-color: #565656;
+  color: #ffffff;
+}
