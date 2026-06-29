@@ -152,3 +152,61 @@ func parseUUID(t *testing.T, s string) (uuid.UUID, error) {
 	t.Helper()
 	return uuid.Parse(s)
 }
+
+func seedIntervalWorkflowAndTrigger(t *testing.T, s *memory.Store, fireAt time.Time, interval string) {
+	t.Helper()
+	ctx := context.Background()
+	_, _ = s.UpsertWorkflowDefinition(ctx, domain.WorkflowDefinition{
+		ID: "wf-interval", Version: 1, Start: "done", Published: true,
+		Steps: []domain.Step{{ID: "done", Type: domain.StepTypeEnd}},
+	})
+	_, _ = s.UpsertTrigger(ctx, domain.SagaTrigger{
+		TriggerType: domain.TriggerCron, WorkflowID: "wf-interval", Version: 1,
+		Config: map[string]any{"interval": interval}, Enabled: true,
+		NextFireAt: &fireAt, CreatedBy: "t",
+	})
+}
+
+func TestCronDispatcher_FiresDueIntervalTrigger(t *testing.T) {
+	s := memory.New()
+	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
+	seedIntervalWorkflowAndTrigger(t, s, now.Add(-time.Second), "30s")
+	pub := &recordingPublisher{}
+	d := &CronDispatcher{S: s, Publisher: pub, Clock: clock.NewFakeClock(now), Licensing: licensing.StubAllowAll{}}
+	if err := d.fireDue(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(pub.runs) != 1 {
+		t.Fatalf("want 1 run advanced for interval trigger, got %d", len(pub.runs))
+	}
+}
+
+func TestCronDispatcher_IntervalTrigger_NextFireAt(t *testing.T) {
+	s := memory.New()
+	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
+	seedIntervalWorkflowAndTrigger(t, s, now.Add(-time.Second), "30s")
+	pub := &recordingPublisher{}
+	d := &CronDispatcher{S: s, Publisher: pub, Clock: clock.NewFakeClock(now), Licensing: licensing.StubAllowAll{}}
+	if err := d.fireDue(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// After firing, next_fire_at should be now + 30s.
+	triggers, _ := s.ListDueCronTriggers(context.Background(), now.Add(31*time.Second), 10)
+	if len(triggers) != 1 {
+		t.Fatalf("trigger should be due again in 30s, triggers due in 31s = %d", len(triggers))
+	}
+}
+
+func TestCronDispatcher_IntervalTrigger_SkipsWhenUnlicensed(t *testing.T) {
+	s := memory.New()
+	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
+	seedIntervalWorkflowAndTrigger(t, s, now.Add(-time.Second), "30s")
+	pub := &recordingPublisher{}
+	d := &CronDispatcher{S: s, Publisher: pub, Clock: clock.NewFakeClock(now), Licensing: denyAll{}}
+	if err := d.fireDue(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(pub.runs) != 0 {
+		t.Fatalf("unlicensed interval trigger must not fire, got %d", len(pub.runs))
+	}
+}

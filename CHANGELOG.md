@@ -1,13 +1,18 @@
 # Changelog
 
-## v0.3.0 - 2026-06-28
+## v0.3.0 - 2026-06-29
 
 ### What Changed 👀
 
 #### 🚀 Features
 
+- feat(engine): interval-based cron cadences @Bugs5382 (#70)
 - feat(engine): cron-scheduled workflow triggers @Bugs5382 (#68)
 - feat(deploy): publish container images and a Helm chart @Bugs5382 (#65)
+
+#### 📄 Documentation
+
+- docs: publish a versioned Docusaurus site to GitHub Pages @Bugs5382 (#74)
 
 ### Extra
 

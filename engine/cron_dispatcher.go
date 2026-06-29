@@ -114,17 +114,31 @@ func (d *CronDispatcher) fireDue(ctx context.Context) error {
 
 	var firstErr error
 	for _, tr := range triggers {
-		schedStr, _ := tr.Config["schedule"].(string)
-		sched, parseErr := ParseSchedule(schedStr)
-		if parseErr != nil {
-			logger.Warn().Err(parseErr).
-				Str("trigger_id", tr.ID.String()).
-				Str("schedule", schedStr).
-				Msg("cron dispatcher: invalid schedule expression, skipping")
-			continue
-		}
+		var next time.Time
 
-		next := sched.Next(now)
+		intervalStr, hasInterval := tr.Config["interval"].(string)
+		if hasInterval && intervalStr != "" {
+			d, parseErr := time.ParseDuration(intervalStr)
+			if parseErr != nil || d <= 0 {
+				logger.Warn().Err(parseErr).
+					Str("trigger_id", tr.ID.String()).
+					Str("interval", intervalStr).
+					Msg("cron dispatcher: invalid interval, skipping")
+				continue
+			}
+			next = now.Add(d)
+		} else {
+			schedStr, _ := tr.Config["schedule"].(string)
+			sched, parseErr := ParseSchedule(schedStr)
+			if parseErr != nil {
+				logger.Warn().Err(parseErr).
+					Str("trigger_id", tr.ID.String()).
+					Str("schedule", schedStr).
+					Msg("cron dispatcher: invalid schedule expression, skipping")
+				continue
+			}
+			next = sched.Next(now)
+		}
 
 		won, claimErr := d.S.ClaimCronFire(ctx, tr.ID, *tr.NextFireAt, next)
 		if claimErr != nil {

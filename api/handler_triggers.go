@@ -107,27 +107,53 @@ func (h *TriggerHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Cron-specific: validate schedule expression and check license.
+	// Cron-specific: validate schedule/interval and check license.
 	var cronNextFireAt *time.Time
 	if body.TriggerType == domain.TriggerCron {
-		expr, _ := body.Config["schedule"].(string)
-		sched, err := engine.ParseSchedule(expr)
-		if err != nil {
-			WriteError(w, http.StatusBadRequest, CodeBadRequest, "invalid cron schedule")
+		_, hasSchedule := body.Config["schedule"]
+		_, hasInterval := body.Config["interval"]
+
+		if hasSchedule && hasInterval {
+			WriteError(w, http.StatusBadRequest, CodeBadRequest, "cron config must have exactly one of schedule or interval, not both")
 			return
 		}
+
 		var tenantID *uuid.UUID
 		if body.TenantID != nil && *body.TenantID != "" {
 			if u, parseErr := uuid.Parse(*body.TenantID); parseErr == nil {
 				tenantID = &u
 			}
 		}
+
+		now := h.Clock.Now()
+		var next time.Time
+
+		if hasInterval {
+			intervalStr, _ := body.Config["interval"].(string)
+			d, err := time.ParseDuration(intervalStr)
+			if err != nil || d <= 0 {
+				WriteError(w, http.StatusBadRequest, CodeBadRequest, "invalid cron interval: must be a positive Go duration (e.g. \"30s\")")
+				return
+			}
+			next = now.Add(d)
+		} else if hasSchedule {
+			expr, _ := body.Config["schedule"].(string)
+			sched, err := engine.ParseSchedule(expr)
+			if err != nil {
+				WriteError(w, http.StatusBadRequest, CodeBadRequest, "invalid cron schedule")
+				return
+			}
+			next = sched.Next(now)
+		} else {
+			WriteError(w, http.StatusBadRequest, CodeBadRequest, "cron config must have exactly one of schedule or interval")
+			return
+		}
+
 		ok, err := h.Licensing.IsFeatureEnabled(r.Context(), tenantID, engine.FeatureCronTriggers, nil)
 		if err != nil || !ok {
 			WriteError(w, http.StatusForbidden, CodeForbidden, "cron triggers not licensed")
 			return
 		}
-		next := sched.Next(h.Clock.Now())
 		cronNextFireAt = &next
 	}
 

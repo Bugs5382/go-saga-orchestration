@@ -2,6 +2,8 @@
 
 Runnable examples of embedding the saga orchestration engine as a library.
 
+> Guides and the full API reference live at the [documentation site](https://bugs5382.github.io/go-saga-orchestration/).
+
 ## basic
 
 A minimal end-to-end embed: an in-memory engine (no Postgres/RabbitMQ), a custom

@@ -2,6 +2,8 @@
 
 One minimal, self-contained `WorkflowDefinition` JSON per verb. Each file is a
 2–4-step flow that demonstrates the verb's key inputs and ends at an `end` step.
+
+> See the [verb reference](https://bugs5382.github.io/go-saga-orchestration/docs/verbs) on the documentation site for each verb's full inputs/outputs.
 All examples are validated automatically by `examples_test.go`.
 
 ---
