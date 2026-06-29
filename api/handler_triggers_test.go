@@ -531,6 +531,100 @@ func TestTriggerHandler_Create_Cron_Unlicensed(t *testing.T) {
 	}
 }
 
+// ---- Cron trigger with interval -------------------------------------------
+
+func validCronIntervalBody() map[string]any {
+	return map[string]any{
+		"trigger_type": "cron",
+		"workflow_id":  "wf",
+		"version":      1,
+		"config":       map[string]any{"interval": "30s"},
+		"enabled":      true,
+		"created_by":   "admin",
+	}
+}
+
+func TestTriggerHandler_Create_Cron_Interval_Valid(t *testing.T) {
+	fixedNow := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	s := memory.New()
+	clk := clock.NewFakeClock(fixedNow)
+	h := NewTriggerHandler(s, licensing.StubAllowAll{}, clk)
+	r := newTriggerRouter(h)
+
+	body, _ := json.Marshal(validCronIntervalBody())
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/triggers", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("want 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp domain.SagaTrigger
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.NextFireAt == nil {
+		t.Fatal("next_fire_at should be set for interval trigger, got nil")
+	}
+	// next_fire_at should be now + 30s.
+	want := fixedNow.Add(30 * time.Second)
+	if !resp.NextFireAt.Equal(want) {
+		t.Errorf("next_fire_at = %v, want %v", resp.NextFireAt, want)
+	}
+}
+
+func TestTriggerHandler_Create_Cron_Interval_Invalid(t *testing.T) {
+	_, r := newTestHandler()
+
+	b := validCronIntervalBody()
+	b["config"] = map[string]any{"interval": "not-a-duration"}
+	body, _ := json.Marshal(b)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/triggers", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTriggerHandler_Create_Cron_BothScheduleAndInterval(t *testing.T) {
+	_, r := newTestHandler()
+
+	b := validCronIntervalBody()
+	b["config"] = map[string]any{
+		"schedule": "* * * * *",
+		"interval": "30s",
+	}
+	body, _ := json.Marshal(b)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/triggers", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 when both schedule and interval present, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTriggerHandler_Create_Cron_NeitherScheduleNorInterval(t *testing.T) {
+	_, r := newTestHandler()
+
+	b := validCronIntervalBody()
+	b["config"] = map[string]any{}
+	body, _ := json.Marshal(b)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/triggers", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 when neither schedule nor interval present, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestTriggerHandler_Create_Cron_InitializesNextFireAt(t *testing.T) {
 	fixedNow := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	s := memory.New()

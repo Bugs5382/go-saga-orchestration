@@ -1,5 +1,7 @@
 # worker — go-saga-orchestration Go SDK
 
+> Full documentation: <https://bugs5382.github.io/go-saga-orchestration/> — see the [gRPC worker protocol](https://bugs5382.github.io/go-saga-orchestration/docs/grpc).
+
 `worker` is the Go SDK that every action-worker service imports to run as a
 saga-action worker for the go-saga-orchestration engine. You declare your service's
 actions and provide a handler function for each; the SDK does the rest of the

@@ -22,6 +22,17 @@ in-process advance; for tests and simple automations) or `saga.New(saga.Options{
 for production wiring. Register custom step types with `RegisterVerb` before publishing workflows.
 Do not import `internal/*` from outside the module; those are infrastructure.
 
+## Documentation
+
+The docs are single-sourced as Markdown under `website/docs/` (a Docusaurus site published to
+<https://bugs5382.github.io/go-saga-orchestration/>). There is no top-level `docs/` folder — read
+and edit the Markdown in `website/docs/` directly. The Go API reference under
+`website/docs/reference/` and the changelog copy are generated (gitignored) — never hand-edit them;
+regenerate with `npm run gen` in `website/`.
+
+For agents consuming the published site over HTTP rather than the repo, the build emits a plain-text
+bundle of every page at `/llms-full.txt` (with an index at `/llms.txt`).
+
 ## Layout
 
 - `saga/` - public facade (`InMemory`, `New`, `*saga.Saga`).
