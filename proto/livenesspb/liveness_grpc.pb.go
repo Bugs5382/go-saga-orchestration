@@ -9,7 +9,7 @@ package livenesspb
 /*
 MIT License
 
-Copyright (c) 2026 Bugs5382
+Copyright (c) 2026 Shane
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
