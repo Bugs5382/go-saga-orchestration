@@ -6,6 +6,7 @@
 
 #### 🚀 Features
 
+- feat(engine): set TriggerID and record trigger-fire audit rows @Bugs5382 (#72)
 - feat(registry): optional dispatch descriptor (http/rmq) on ActionRegistration @Bugs5382 (#73)
 - feat(engine): interval-based cron cadences @Bugs5382 (#70)
 - feat(engine): cron-scheduled workflow triggers @Bugs5382 (#68)
