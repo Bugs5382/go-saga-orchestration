@@ -27,6 +27,7 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/google/uuid"
 	goredis "github.com/redis/go-redis/v9"
@@ -78,6 +79,100 @@ func (s *Store) UpdateRunState(ctx context.Context, id uuid.UUID, state domain.R
 			}
 			s.applyTerminalTTL(ctx, p, id)
 		}
+		return nil
+	})
+}
+
+// Cancel terminates an in-flight run: terminal cancelled + terminal_at,
+// reason in last_error, open user tasks closed, await markers / wakeup
+// cleared (and the run dropped from the active indexes). Idempotent — a
+// no-op (and no event) once the run is terminal. See issue #80.
+func (s *Store) Cancel(ctx context.Context, runID uuid.UUID, reason string) error {
+	var (
+		cancelled bool
+		step      string
+	)
+	err := s.txRun(ctx, runID, func(r *domain.SagaRun, p goredis.Pipeliner) error {
+		if r.State.IsTerminal() {
+			return nil // idempotent
+		}
+		cancelled = true
+		step = r.CurrentStep
+		now := time.Now().UTC()
+		r.State = domain.RunStateCancelled
+		r.TerminalAt = &now
+		r.LastEventAt = now
+		if reason != "" {
+			rc := reason
+			r.LastError = &rc
+		}
+		p.ZRem(ctx, s.key("idx", "wakeup"), runID.String())
+		if r.AwaitedEventTopic != nil {
+			p.SRem(ctx, s.key("idx", "awaitevent", *r.AwaitedEventTopic), runID.String())
+		}
+		r.WakeupAt = nil
+		r.AwaitedSignal = nil
+		r.AwaitedEventTopic = nil
+		r.AwaitedEventHeaders = nil
+		r.AwaitedActionDispatch = nil
+		s.applyTerminalTTL(ctx, p, runID)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if !cancelled {
+		return nil // already terminal
+	}
+	// Close the run's open user tasks so none linger pending.
+	tasks, err := s.ListUserTasksByRun(ctx, runID)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	for _, t := range tasks {
+		if t.SubmittedAt != nil {
+			continue
+		}
+		t.SubmittedAt = &now
+		t.SubmittedBy = "system:run-cancelled"
+		b, err := json.Marshal(t)
+		if err != nil {
+			return err
+		}
+		if err := s.rdb.Set(ctx, s.key("usertask", t.ID.String()), b, 0).Err(); err != nil {
+			return err
+		}
+	}
+	evt := domain.NewEvent(runID, step, 0, domain.EventRunCancelled, "engine")
+	if reason != "" {
+		evt.Metadata = map[string]any{"reason": reason}
+	}
+	return s.AppendEvent(ctx, evt)
+}
+
+// MarkRunFailed transitions a run to terminal failed, stamps terminal_at,
+// and persists lastError on the run. Idempotent on terminal runs. See
+// issue #80.
+func (s *Store) MarkRunFailed(ctx context.Context, runID uuid.UUID, currentStep, lastError string) error {
+	return s.txRun(ctx, runID, func(r *domain.SagaRun, p goredis.Pipeliner) error {
+		if r.State.IsTerminal() {
+			return nil // idempotent
+		}
+		now := time.Now().UTC()
+		r.State = domain.RunStateFailed
+		r.CurrentStep = currentStep
+		r.TerminalAt = &now
+		r.LastEventAt = now
+		if lastError != "" {
+			ec := lastError
+			r.LastError = &ec
+		}
+		p.ZRem(ctx, s.key("idx", "wakeup"), runID.String())
+		if r.AwaitedEventTopic != nil {
+			p.SRem(ctx, s.key("idx", "awaitevent", *r.AwaitedEventTopic), runID.String())
+		}
+		s.applyTerminalTTL(ctx, p, runID)
 		return nil
 	})
 }

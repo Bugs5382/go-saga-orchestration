@@ -63,6 +63,8 @@ func RunSuite(t *testing.T, newStore func(t *testing.T) store.Store) {
 		{"ChildRuns", testChildRuns},
 		{"TryCatch", testTryCatch},
 		{"UserTasks", testUserTasks},
+		{"RunCancel", testRunCancel},
+		{"MarkRunFailed", testMarkRunFailed},
 		{"ActionRegistry", testActionRegistry},
 		{"ActionDispatch", testActionDispatch},
 		{"Triggers", testTriggers},
@@ -585,6 +587,82 @@ func testUserTasks(t *testing.T, s store.Store) {
 			t.Errorf("ListUserTasksByRun returned task for run %s, want %s", tk.RunID, run.ID)
 		}
 	}
+}
+
+// testRunCancel covers issue #80's run-level Cancel: terminal cancelled +
+// terminal_at, reason in last_error, open user tasks closed, await markers
+// cleared, idempotency, and ErrNotFound for a missing run.
+func testRunCancel(t *testing.T, s store.Store) {
+	run := seedRun(t, s, "wf")
+	// Park it paused awaiting a signal (with a wakeup deadline) and give it
+	// an open user task — the exact shape Cancel must tear down.
+	requireNoErr(t, s.SetPausedAwaitingSignal(ctx(), run.ID, "approve", ptrTime(time.Now().Add(time.Hour))), "SetPausedAwaitingSignal")
+	task := domain.UserTask{ID: uuid.New(), RunID: run.ID, StepID: "approve", Assignee: "bob"}
+	requireNoErr(t, s.CreateUserTask(ctx(), task), "CreateUserTask")
+
+	requireNoErr(t, s.Cancel(ctx(), run.ID, "withdrawn"), "Cancel")
+
+	got, err := s.GetRun(ctx(), run.ID)
+	requireNoErr(t, err, "GetRun after cancel")
+	if got.State != domain.RunStateCancelled {
+		t.Errorf("State = %q, want cancelled", got.State)
+	}
+	if got.TerminalAt == nil {
+		t.Error("TerminalAt = nil after cancel, want set")
+	}
+	if got.LastError == nil || *got.LastError != "withdrawn" {
+		t.Errorf("LastError = %v, want \"withdrawn\"", got.LastError)
+	}
+	if got.AwaitedSignal != nil || got.WakeupAt != nil {
+		t.Errorf("await markers not cleared: AwaitedSignal=%v WakeupAt=%v", got.AwaitedSignal, got.WakeupAt)
+	}
+
+	// The open user task is closed so it no longer lingers pending.
+	gotTask, err := s.GetUserTask(ctx(), task.ID)
+	requireNoErr(t, err, "GetUserTask after cancel")
+	if gotTask.SubmittedAt == nil {
+		t.Error("user task SubmittedAt = nil after cancel, want closed")
+	}
+
+	// Idempotent: a second cancel is a no-op and leaves the original reason.
+	requireNoErr(t, s.Cancel(ctx(), run.ID, "again"), "Cancel idempotent")
+	got2, _ := s.GetRun(ctx(), run.ID)
+	if got2.LastError == nil || *got2.LastError != "withdrawn" {
+		t.Errorf("LastError changed on idempotent cancel = %v, want unchanged \"withdrawn\"", got2.LastError)
+	}
+
+	requireNotFound(t, s.Cancel(ctx(), uuid.New(), "x"), "Cancel(missing run)")
+}
+
+// testMarkRunFailed covers issue #80's failed-run error persistence:
+// terminal failed + terminal_at + last_error, idempotency, ErrNotFound.
+func testMarkRunFailed(t *testing.T, s store.Store) {
+	run := seedRun(t, s, "wf")
+	requireNoErr(t, s.MarkRunFailed(ctx(), run.ID, "charge", "card declined"), "MarkRunFailed")
+
+	got, err := s.GetRun(ctx(), run.ID)
+	requireNoErr(t, err, "GetRun after fail")
+	if got.State != domain.RunStateFailed {
+		t.Errorf("State = %q, want failed", got.State)
+	}
+	if got.TerminalAt == nil {
+		t.Error("TerminalAt = nil after fail, want set")
+	}
+	if got.LastError == nil || *got.LastError != "card declined" {
+		t.Errorf("LastError = %v, want \"card declined\"", got.LastError)
+	}
+	if got.CurrentStep != "charge" {
+		t.Errorf("CurrentStep = %q, want charge", got.CurrentStep)
+	}
+
+	// Idempotent: re-failing a terminal run keeps the original error.
+	requireNoErr(t, s.MarkRunFailed(ctx(), run.ID, "other", "second error"), "MarkRunFailed idempotent")
+	got2, _ := s.GetRun(ctx(), run.ID)
+	if got2.LastError == nil || *got2.LastError != "card declined" {
+		t.Errorf("LastError changed on idempotent fail = %v, want unchanged \"card declined\"", got2.LastError)
+	}
+
+	requireNotFound(t, s.MarkRunFailed(ctx(), uuid.New(), "s", "e"), "MarkRunFailed(missing run)")
 }
 
 func testActionRegistry(t *testing.T, s store.Store) {
