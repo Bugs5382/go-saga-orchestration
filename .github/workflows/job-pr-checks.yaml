@@ -41,9 +41,10 @@ jobs:
               .git/*) continue ;;
               *.png|*.jpg|*.jpeg|*.gif|*.pdf|*.ico|*.svg|*.woff|*.woff2|*.ttf|*.eot|*.zip|*.gz) continue ;;
             esac
-            # Emoji allowed in Markdown and .github; blocked elsewhere.
+            # Emoji allowed in Markdown, .github, and the docs site source
+            # (website/, presentational like Markdown); blocked elsewhere.
             case "$f" in
-              .github/*|*.md|NOTES.txt|*/NOTES.txt) : ;;
+              .github/*|*.md|NOTES.txt|*/NOTES.txt|website/*) : ;;
               *) e="$(gov_find_emoji < "$f")"; [ -n "$e" ] && { echo "emoji not allowed in $f:"; echo "$e"; fail=1; } ;;
             esac
             # AI-tells blocked except in files that document the rule.
