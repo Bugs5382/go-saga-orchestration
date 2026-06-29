@@ -63,8 +63,7 @@ func TestActionDispatch_HTTPTransport_FullLoop(t *testing.T) {
 	defer restSrv.Close()
 
 	// HTTP worker: receives the dispatch, then posts a success result back.
-	var workerSrv *httptest.Server
-	workerSrv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	workerSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		payload, _ := io.ReadAll(req.Body)
 		w.WriteHeader(http.StatusAccepted)
 		var ap verbs.ActionPayload
