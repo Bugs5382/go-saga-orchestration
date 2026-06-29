@@ -1,21 +1,25 @@
+{{- if .Values.cron.dedicated }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "gosaga.fullname" . }}-engine
+  name: {{ include "gosaga.fullname" . }}-cron
   labels:
     {{- include "gosaga.labels" . | nindent 4 }}
-    app.kubernetes.io/component: engine
+    app.kubernetes.io/component: cron
 spec:
-  replicas: {{ .Values.engine.replicas }}
+  # Single dedicated cron writer. Recreate avoids two cron pods overlapping
+  # during a rollout; the ClaimCronFire CAS keeps firing exactly-once regardless,
+  # so cron.replicas may be raised for availability if desired (issue #69).
+  replicas: {{ .Values.cron.replicas }}
   strategy:
-    {{- toYaml .Values.engine.updateStrategy | nindent 4 }}
+    type: Recreate
   selector:
     matchLabels:
-      {{- include "gosaga.selectorLabels" (merge (dict "component" "engine") .) | nindent 6 }}
+      {{- include "gosaga.selectorLabels" (merge (dict "component" "cron") .) | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "gosaga.selectorLabels" (merge (dict "component" "engine") .) | nindent 8 }}
+        {{- include "gosaga.selectorLabels" (merge (dict "component" "cron") .) | nindent 8 }}
       {{- with .Values.podAnnotations }}
       annotations:
         {{- toYaml . | nindent 8 }}
@@ -29,7 +33,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
-        - name: engine
+        - name: cron
           image: "{{ .Values.image.registry }}/{{ .Values.image.engine.repository }}:{{ include "gosaga.imageTag" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
@@ -41,11 +45,10 @@ spec:
             - configMapRef:
                 name: {{ include "gosaga.fullname" . }}-config
           env:
-            # Derived from cron.dedicated: a dedicated cron pod turns the
-            # dispatcher OFF on every main engine; otherwise every engine runs it
-            # (CAS keeps firing single-shot). See issue #69.
+            # The dedicated cron pod is the one engine process that runs the
+            # cron dispatcher loop (issue #69).
             - name: WORKFLOW_CRON_DISPATCHER
-              value: {{ if .Values.cron.dedicated }}"false"{{ else }}"true"{{ end }}
+              value: "true"
             {{- if .Values.connectionSecret }}
             {{- include "gosaga.connEnv" . | nindent 12 }}
             {{- end }}
@@ -54,4 +57,5 @@ spec:
           readinessProbe:
             {{- toYaml .Values.engine.readinessProbe | nindent 12 }}
           resources:
-            {{- toYaml .Values.engine.resources | nindent 12 }}
+            {{- toYaml .Values.cron.resources | nindent 12 }}
+{{- end }}

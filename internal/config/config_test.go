@@ -111,3 +111,39 @@ func TestParseRunTTLBadValue(t *testing.T) {
 		t.Errorf("RedisRunTTL bad parse = %v, want 0 (default)", cfg.RedisRunTTL)
 	}
 }
+
+func TestLoadCronDispatcherDefault(t *testing.T) {
+	_ = os.Unsetenv("WORKFLOW_CRON_DISPATCHER")
+
+	cfg := Load()
+	if !cfg.Engine.EnableCronDispatcher {
+		t.Errorf("EnableCronDispatcher default = false, want true (current behavior)")
+	}
+}
+
+func TestLoadCronDispatcherDisabled(t *testing.T) {
+	t.Setenv("WORKFLOW_CRON_DISPATCHER", "false")
+
+	cfg := Load()
+	if cfg.Engine.EnableCronDispatcher {
+		t.Errorf("EnableCronDispatcher = true, want false when WORKFLOW_CRON_DISPATCHER=false")
+	}
+}
+
+func TestLoadCronDispatcherEnabled(t *testing.T) {
+	t.Setenv("WORKFLOW_CRON_DISPATCHER", "true")
+
+	cfg := Load()
+	if !cfg.Engine.EnableCronDispatcher {
+		t.Errorf("EnableCronDispatcher = false, want true when WORKFLOW_CRON_DISPATCHER=true")
+	}
+}
+
+func TestLoadCronDispatcherBadValue(t *testing.T) {
+	t.Setenv("WORKFLOW_CRON_DISPATCHER", "not-a-bool")
+
+	cfg := Load()
+	if !cfg.Engine.EnableCronDispatcher {
+		t.Errorf("EnableCronDispatcher bad parse = false, want true (default)")
+	}
+}

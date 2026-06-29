@@ -78,6 +78,27 @@ engine:
   service:
     type: ClusterIP
 
+# Cron dispatcher topology (issue #69). Cron firing is exactly-once across all
+# engine pods via the ClaimCronFire CAS, so isolating cron onto its own pod is an
+# operational choice, not a correctness requirement. This single switch controls
+# the whole topology:
+#
+#   dedicated: false (default) -> no extra pod; the cron dispatcher runs on every
+#     main engine pod (CAS keeps firing single-shot). Simplest single-deployment
+#     setup.
+#   dedicated: true -> add one dedicated single-replica cron pod that runs the
+#     dispatcher, and turn the dispatcher OFF on every (scaled) main engine pod.
+#     One obvious cron writer alongside many saga-processing replicas. The cron
+#     pod reuses the engine image, config, and connection secret.
+#
+# There is no separate per-engine cron flag: enabling the dedicated pod is what
+# disables cron on the main engines. The WORKFLOW_CRON_DISPATCHER env the binary
+# reads is derived from this switch by the chart.
+cron:
+  dedicated: false
+  replicas: 1
+  resources: {}
+
 ingress:
   enabled: false
   className: ""

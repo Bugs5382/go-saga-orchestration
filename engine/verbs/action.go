@@ -124,6 +124,43 @@ func (v ActionVerb) Execute(ctx context.Context, run domain.SagaRun, step domain
 	return nil, ErrSagaPaused
 }
 
+// CompensationPayload is the body of a compensation action dispatch. It mirrors
+// ActionPayload but carries no attempt/idempotency machinery: compensation is a
+// fire-and-forget rollback dispatch, not an awaited step.
+type CompensationPayload struct {
+	RunID  string         `json:"run_id"`
+	StepID string         `json:"step_id"` // the step being compensated
+	Action string         `json:"action"`  // "<service>.<action_name>"
+	Inputs map[string]any `json:"inputs"`
+	DryRun bool           `json:"dry_run,omitempty"`
+}
+
+// DispatchCompensation sends a step's compensation action to its worker over the
+// action's declared transport, reusing the same routing the action verb uses. It
+// does not mark the run awaiting or pause it: compensation runs are dispatched
+// best-effort while the run settles to failed. The action must be in
+// "<service>.<action_name>" form.
+func (v ActionVerb) DispatchCompensation(ctx context.Context, runID, stepID, action string, inputs map[string]any, dryRun bool) error {
+	if action == "" {
+		return fmt.Errorf("compensation: action required (format service.name)")
+	}
+	if !strings.Contains(action, ".") {
+		return fmt.Errorf("compensation: bad action format %q (want service.name)", action)
+	}
+	payload := CompensationPayload{
+		RunID:  runID,
+		StepID: stepID,
+		Action: action,
+		Inputs: inputs,
+		DryRun: dryRun,
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("compensation: marshal payload: %w", err)
+	}
+	return v.dispatch(ctx, action, body)
+}
+
 // dispatch routes the marshalled ActionPayload to the transport declared on
 // the action's registration. gRPC (or no descriptor) is the default; http and
 // rmq require a non-empty Address and a configured dispatcher. (issue #59)
