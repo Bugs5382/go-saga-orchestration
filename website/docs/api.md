@@ -36,6 +36,7 @@ notes that auth middleware will land in a later batch.
 | GET | `/api/v1/sagas/{id}` | Get one saga run |
 | POST | `/api/v1/sagas/{run_id}/signal/{name}` | Deliver an external signal |
 | POST | `/api/v1/sagas/{run_id}/user_task/{task_id}/submit` | Submit a user task result |
+| POST | `/api/v1/sagas/{run_id}/actions/{step_id}/result` | Report an action result (http/rmq workers) |
 | GET | `/api/v1/sagas/{run_id}/stream` | Live run inspector (WebSocket) |
 | POST | `/api/v1/registry/register` | Register a service's actions |
 | GET | `/api/v1/registry/actions` | List registered actions |
@@ -224,20 +225,52 @@ websocat ws://localhost:8080/api/v1/sagas/<run_id>/stream
 
 ```bash
 # Register actions (idempotent; call on service startup)
+# An action may carry an optional dispatch descriptor — "transport"
+# (grpc | http | rmq) and "address" (callback URL for http, queue name for
+# rmq; required only for http/rmq). Omit it for the gRPC default.
 curl -s -X POST http://localhost:8080/api/v1/registry/register \
   -H 'Content-Type: application/json' \
   -d '{
         "service":"example",
         "service_version":"0.18.2",
         "actions":[
-          {"action_name":"set_state","version":1,"category":"record_lifecycle","compensable":true,"input_schema":{},"output_schema":{}}
+          {"action_name":"set_state","version":1,"category":"record_lifecycle","compensable":true,"input_schema":{},"output_schema":{}},
+          {"action_name":"send_email","version":1,"input_schema":{},"output_schema":{},"transport":"http","address":"https://worker.example.com/actions/send_email"}
         ]
       }'
-# 200 {"service":"example","service_version":"0.18.2","registered":1}
+# 200 {"service":"example","service_version":"0.18.2","registered":2}
 
-# List actions
+# List actions (descriptor is echoed back)
 curl -s 'http://localhost:8080/api/v1/registry/actions?service=example&category=record_lifecycle'
 # {"actions":[ ... ]}
+```
+
+### Action result callback (http / rmq workers)
+
+`POST /api/v1/sagas/{run_id}/actions/{step_id}/result`
+
+gRPC workers reply over the `ExecuteStep` stream. Workers reached over the
+`http` or `rmq` transport have no return stream, so they report their result
+asynchronously here. The endpoint applies the same `CompleteAction` /
+`FailAction` semantics as the gRPC path: success merges the result into the
+run's variables and resumes the saga; failure transitions the run to `failed`.
+Attempt handling and idempotency are preserved — a stale `attempt` is a no-op.
+
+Send **exactly one** of `result` or `error`. `attempt` is optional; omitted,
+it defaults to the run's current attempt (the only in-flight dispatch).
+
+```bash
+# Success — completes the action and advances the saga.
+curl -s -X POST http://localhost:8080/api/v1/sagas/<run_id>/actions/<step_id>/result \
+  -H 'Content-Type: application/json' \
+  -d '{"result":{"ticket_number":"INC-999"}}'
+# 202
+
+# Failure — transitions the run to failed.
+curl -s -X POST http://localhost:8080/api/v1/sagas/<run_id>/actions/<step_id>/result \
+  -H 'Content-Type: application/json' \
+  -d '{"error":{"code":"ERR_WORKER_CRASH","message":"worker panicked","retryable":false}}'
+# 202
 ```
 
 ### Rules

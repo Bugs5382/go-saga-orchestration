@@ -262,6 +262,8 @@ func TestMemoryStore_ActionRegistration_RoundTrip(t *testing.T) {
 		Category:     "record_lifecycle",
 		Compensable:  true,
 		LicenseGroup: "wf.worker_actions_basic",
+		Transport:    domain.TransportHTTP,
+		Address:      "https://worker.local/callback",
 	}
 	if err := s.UpsertActionRegistration(ctx, reg); err != nil {
 		t.Fatalf("upsert: %v", err)
@@ -272,6 +274,10 @@ func TestMemoryStore_ActionRegistration_RoundTrip(t *testing.T) {
 	}
 	if got.Description != "Transition record state" {
 		t.Errorf("description = %q", got.Description)
+	}
+	// Dispatch descriptor must round-trip. (issue #59)
+	if got.Transport != domain.TransportHTTP || got.Address != "https://worker.local/callback" {
+		t.Errorf("dispatch descriptor = %q/%q, want http/https://worker.local/callback", got.Transport, got.Address)
 	}
 	actions, _ := s.ListActions(ctx, store.ActionFilter{Service: "example"})
 	if len(actions) != 1 {

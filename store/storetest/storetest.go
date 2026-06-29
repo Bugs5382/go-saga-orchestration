@@ -589,9 +589,13 @@ func testUserTasks(t *testing.T, s store.Store) {
 
 func testActionRegistry(t *testing.T, s store.Store) {
 	regs := []domain.ActionRegistration{
-		{Service: "svc1", ActionName: "create_order", Version: 1, Category: "orders"},
+		// create_order carries an http dispatch descriptor; the others omit it
+		// (gRPC default). (issue #59)
+		{Service: "svc1", ActionName: "create_order", Version: 1, Category: "orders",
+			Transport: domain.TransportHTTP, Address: "https://svc1.local/create_order"},
 		{Service: "svc1", ActionName: "cancel_order", Version: 1, Category: "orders"},
-		{Service: "svc2", ActionName: "send_email", Version: 1, Category: "comms"},
+		{Service: "svc2", ActionName: "send_email", Version: 1, Category: "comms",
+			Transport: domain.TransportRMQ, Address: "svc2.send_email.q"},
 	}
 	for _, r := range regs {
 		requireNoErr(t, s.UpsertActionRegistration(ctx(), r), "UpsertActionRegistration")
@@ -601,6 +605,16 @@ func testActionRegistry(t *testing.T, s store.Store) {
 	requireNoErr(t, err, "GetAction")
 	if got.Service != "svc1" || got.ActionName != "create_order" {
 		t.Errorf("GetAction = %+v, want svc1/create_order", got)
+	}
+	// Dispatch descriptor must round-trip across every backend. (issue #59)
+	if got.Transport != domain.TransportHTTP || got.Address != "https://svc1.local/create_order" {
+		t.Errorf("GetAction dispatch = %q/%q, want http/https://svc1.local/create_order", got.Transport, got.Address)
+	}
+	// An action with no descriptor round-trips as empty (gRPC default).
+	plain, err := s.GetAction(ctx(), "svc1", "cancel_order", 1)
+	requireNoErr(t, err, "GetAction(cancel_order)")
+	if plain.Transport != "" || plain.Address != "" {
+		t.Errorf("no-descriptor action = %q/%q, want empty/empty", plain.Transport, plain.Address)
 	}
 	_, err = s.GetAction(ctx(), "svc1", "missing", 1)
 	requireNotFound(t, err, "GetAction(missing)")

@@ -49,4 +49,26 @@ type ActionRegistration struct {
 	ServiceVersion   string         `json:"service_version,omitempty"`
 	DryRunSupported  bool           `json:"dry_run_supported"`
 	LicenseGroup     string         `json:"license_group,omitempty"`
+
+	// Transport is the optional dispatch descriptor: how the coordinator
+	// reaches the worker that runs this action. One of "grpc", "http" or
+	// "rmq". Empty means grpc — the zero-config default where the worker
+	// is connected over the gRPC ExecuteStep stream. (issue #59)
+	Transport string `json:"transport,omitempty"`
+	// Address is the dispatch target for non-gRPC transports: a callback
+	// URL for "http" or a queue name for "rmq". Required only when
+	// Transport is "http" or "rmq"; ignored for "grpc". (issue #59)
+	Address string `json:"address,omitempty"`
 }
+
+// Dispatch transport values for ActionRegistration.Transport.
+const (
+	// TransportGRPC is the zero-config default: the worker is reachable over
+	// the gRPC ExecuteStep stream. Equivalent to an empty Transport.
+	TransportGRPC = "grpc"
+	// TransportHTTP dispatches the action by POSTing the payload to Address.
+	TransportHTTP = "http"
+	// TransportRMQ dispatches the action by publishing the payload to the
+	// RabbitMQ queue named by Address.
+	TransportRMQ = "rmq"
+)
