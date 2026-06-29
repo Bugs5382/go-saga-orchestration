@@ -149,6 +149,11 @@ type Store interface {
 	// expectedNextFire to newNextFire (and stamps last_fired_at). Returns true
 	// iff this caller won the row — the single-fire guarantee across pods.
 	ClaimCronFire(ctx context.Context, id uuid.UUID, expectedNextFire, newNextFire time.Time) (bool, error)
+	// RecordTriggerFire inserts a row into runtime.saga_trigger_fires. Best-effort:
+	// callers must log errors but must not abort the triggering run on failure.
+	// runID is nil when the fire failed before a run was created. fireErr is empty
+	// on success.
+	RecordTriggerFire(ctx context.Context, triggerID uuid.UUID, workflowID string, runID *uuid.UUID, fireErr string) error
 
 	// Action dispatch tracking.
 	// MarkAwaitingAction sets state=paused, records the dispatch key and attempt.

@@ -143,6 +143,8 @@ func (d *TriggerDispatcher) Dispatch(ctx context.Context, evt EventDelivery) err
 
 		run := domain.NewSagaRun(def.ID, defRowID, tenantID, inputs)
 		run.CurrentStep = startStep
+		trigID := trig.ID
+		run.TriggerID = &trigID
 		if err := d.S.CreateRun(ctx, run); err != nil {
 			log.Error().Err(err).Str("trigger_id", trig.ID.String()).Msg("trigger dispatcher: create run")
 			if firstErr == nil {
@@ -161,6 +163,10 @@ func (d *TriggerDispatcher) Dispatch(ctx context.Context, evt EventDelivery) err
 				}
 				continue
 			}
+		}
+
+		if recErr := d.S.RecordTriggerFire(ctx, trig.ID, trig.WorkflowID, &run.ID, ""); recErr != nil {
+			log.Warn().Err(recErr).Str("trigger_id", trig.ID.String()).Msg("trigger dispatcher: record trigger fire")
 		}
 	}
 

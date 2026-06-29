@@ -41,32 +41,34 @@ import (
 
 // Store is the in-memory store. Safe for concurrent use.
 type Store struct {
-	mu         sync.RWMutex
-	defs       map[uuid.UUID]domain.WorkflowDefinition
-	defsByName map[string][]uuid.UUID // workflow_id -> versions ordered
-	runs       map[uuid.UUID]domain.SagaRun
-	events     map[uuid.UUID][]domain.SagaRunEvent
-	rules      map[uuid.UUID]domain.RuleDefinition // key: rule UUID
-	rulesByID  map[string][]uuid.UUID              // rule_id -> versions
-	signals    map[uuid.UUID][]domain.SagaSignal
-	userTasks  map[uuid.UUID]domain.UserTask
-	actions    map[string]map[int]domain.ActionRegistration // key: service.name -> version
-	triggers   map[uuid.UUID]domain.SagaTrigger
+	mu           sync.RWMutex
+	defs         map[uuid.UUID]domain.WorkflowDefinition
+	defsByName   map[string][]uuid.UUID // workflow_id -> versions ordered
+	runs         map[uuid.UUID]domain.SagaRun
+	events       map[uuid.UUID][]domain.SagaRunEvent
+	rules        map[uuid.UUID]domain.RuleDefinition // key: rule UUID
+	rulesByID    map[string][]uuid.UUID              // rule_id -> versions
+	signals      map[uuid.UUID][]domain.SagaSignal
+	userTasks    map[uuid.UUID]domain.UserTask
+	actions      map[string]map[int]domain.ActionRegistration // key: service.name -> version
+	triggers     map[uuid.UUID]domain.SagaTrigger
+	triggerFires []domain.TriggerFireRow
 }
 
 // New returns an empty Store. Compile-time check confirms it satisfies the interface.
 func New() *Store {
 	return &Store{
-		defs:       map[uuid.UUID]domain.WorkflowDefinition{},
-		defsByName: map[string][]uuid.UUID{},
-		runs:       map[uuid.UUID]domain.SagaRun{},
-		events:     map[uuid.UUID][]domain.SagaRunEvent{},
-		rules:      map[uuid.UUID]domain.RuleDefinition{},
-		rulesByID:  map[string][]uuid.UUID{},
-		signals:    map[uuid.UUID][]domain.SagaSignal{},
-		userTasks:  map[uuid.UUID]domain.UserTask{},
-		actions:    map[string]map[int]domain.ActionRegistration{},
-		triggers:   map[uuid.UUID]domain.SagaTrigger{},
+		defs:         map[uuid.UUID]domain.WorkflowDefinition{},
+		defsByName:   map[string][]uuid.UUID{},
+		runs:         map[uuid.UUID]domain.SagaRun{},
+		events:       map[uuid.UUID][]domain.SagaRunEvent{},
+		rules:        map[uuid.UUID]domain.RuleDefinition{},
+		rulesByID:    map[string][]uuid.UUID{},
+		signals:      map[uuid.UUID][]domain.SagaSignal{},
+		userTasks:    map[uuid.UUID]domain.UserTask{},
+		actions:      map[string]map[int]domain.ActionRegistration{},
+		triggers:     map[uuid.UUID]domain.SagaTrigger{},
+		triggerFires: []domain.TriggerFireRow{},
 	}
 }
 

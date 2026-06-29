@@ -28,6 +28,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/Bugs5382/go-saga-orchestration/clock"
 	"github.com/Bugs5382/go-saga-orchestration/domain"
 	"github.com/Bugs5382/go-saga-orchestration/licensing"
@@ -74,6 +76,81 @@ func TestCronDispatcher_SkipsWhenUnlicensed(t *testing.T) {
 	if len(pub.runs) != 0 {
 		t.Fatalf("unlicensed tenant must not fire, got %d", len(pub.runs))
 	}
+}
+
+func TestCronDispatcher_SetsTriggerID(t *testing.T) {
+	s := memory.New()
+	ctx := context.Background()
+	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
+	seedCronWorkflowAndTrigger(t, s, now.Add(-time.Second))
+
+	// Capture the trigger ID before firing.
+	triggers, _ := s.ListDueCronTriggers(ctx, now, 1)
+	if len(triggers) == 0 {
+		t.Fatal("no due trigger found after seed")
+	}
+	expectedTrigID := triggers[0].ID
+
+	pub := &recordingPublisher{}
+	d := &CronDispatcher{S: s, Publisher: pub, Clock: clock.NewFakeClock(now), Licensing: licensing.StubAllowAll{}}
+	if err := d.fireDue(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(pub.runs) != 1 {
+		t.Fatalf("want 1 run, got %d", len(pub.runs))
+	}
+
+	runID, err := parseUUID(t, pub.runs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := s.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if run.TriggerID == nil {
+		t.Fatal("run.TriggerID is nil, want it set")
+	}
+	if *run.TriggerID != expectedTrigID {
+		t.Errorf("TriggerID = %v, want %v", *run.TriggerID, expectedTrigID)
+	}
+}
+
+func TestCronDispatcher_RecordsTriggerFire(t *testing.T) {
+	s := memory.New()
+	ctx := context.Background()
+	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
+	seedCronWorkflowAndTrigger(t, s, now.Add(-time.Second))
+
+	pub := &recordingPublisher{}
+	d := &CronDispatcher{S: s, Publisher: pub, Clock: clock.NewFakeClock(now), Licensing: licensing.StubAllowAll{}}
+	if err := d.fireDue(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(pub.runs) != 1 {
+		t.Fatalf("want 1 run, got %d", len(pub.runs))
+	}
+
+	fires := s.TriggerFires()
+	if len(fires) != 1 {
+		t.Fatalf("want 1 trigger fire row, got %d", len(fires))
+	}
+	fire := fires[0]
+	if fire.WorkflowID != "wf-cron" {
+		t.Errorf("WorkflowID = %q, want %q", fire.WorkflowID, "wf-cron")
+	}
+	if fire.ResultingRunID == nil {
+		t.Fatal("ResultingRunID is nil, want it set")
+	}
+	if fire.Error != "" {
+		t.Errorf("Error = %q, want empty", fire.Error)
+	}
+}
+
+// parseUUID is a test helper to parse a UUID string.
+func parseUUID(t *testing.T, s string) (uuid.UUID, error) {
+	t.Helper()
+	return uuid.Parse(s)
 }
 
 func seedIntervalWorkflowAndTrigger(t *testing.T, s *memory.Store, fireAt time.Time, interval string) {
