@@ -51,8 +51,9 @@ func (s *Store) UpsertActionRegistration(ctx context.Context, reg domain.ActionR
 INSERT INTO definitions.action_registry
   (id, service, action_name, version, description, category, compensable,
    input_schema, output_schema, error_codes, default_retry, default_timeout_ms,
-   deprecated, registered_at, service_version, dry_run_supported, license_group)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now(),$14,$15,$16)
+   deprecated, registered_at, service_version, dry_run_supported, license_group,
+   transport, address)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now(),$14,$15,$16,$17,$18)
 ON CONFLICT (service, action_name, version) DO UPDATE SET
   description        = EXCLUDED.description,
   category           = EXCLUDED.category,
@@ -65,11 +66,14 @@ ON CONFLICT (service, action_name, version) DO UPDATE SET
   deprecated         = EXCLUDED.deprecated,
   service_version    = EXCLUDED.service_version,
   dry_run_supported  = EXCLUDED.dry_run_supported,
-  license_group      = EXCLUDED.license_group
+  license_group      = EXCLUDED.license_group,
+  transport          = EXCLUDED.transport,
+  address            = EXCLUDED.address
 `,
 		id, reg.Service, reg.ActionName, reg.Version, reg.Description, reg.Category, reg.Compensable,
 		inSchema, outSchema, reg.ErrorCodes, retryJSON, reg.DefaultTimeoutMS,
 		reg.Deprecated, reg.ServiceVersion, reg.DryRunSupported, reg.LicenseGroup,
+		reg.Transport, reg.Address,
 	)
 	if err != nil {
 		return fmt.Errorf("upsert action: %w", err)
@@ -95,7 +99,8 @@ func (s *Store) ListActions(ctx context.Context, filter store.ActionFilter) ([]d
 	}
 	q := `SELECT id, service, action_name, version, description, category, compensable,
            input_schema, output_schema, error_codes, default_retry, default_timeout_ms,
-           deprecated, registered_at, service_version, dry_run_supported, license_group
+           deprecated, registered_at, service_version, dry_run_supported, license_group,
+           COALESCE(transport, ''), COALESCE(address, '')
           FROM definitions.action_registry`
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
@@ -117,6 +122,7 @@ func (s *Store) ListActions(ctx context.Context, filter store.ActionFilter) ([]d
 			&inSchema, &outSchema, &reg.ErrorCodes, &retryJSON, &reg.DefaultTimeoutMS,
 			&reg.Deprecated, &reg.RegisteredAt, &reg.ServiceVersion,
 			&reg.DryRunSupported, &reg.LicenseGroup,
+			&reg.Transport, &reg.Address,
 		); err != nil {
 			return nil, fmt.Errorf("scan action: %w", err)
 		}
@@ -135,7 +141,8 @@ func (s *Store) GetAction(ctx context.Context, service, name string, version int
 	row := s.pool.QueryRow(ctx, `
 SELECT id, service, action_name, version, description, category, compensable,
        input_schema, output_schema, error_codes, default_retry, default_timeout_ms,
-       deprecated, registered_at, service_version, dry_run_supported, license_group
+       deprecated, registered_at, service_version, dry_run_supported, license_group,
+       COALESCE(transport, ''), COALESCE(address, '')
 FROM definitions.action_registry
 WHERE service=$1 AND action_name=$2 AND version=$3`, service, name, version)
 	if err := row.Scan(
@@ -144,6 +151,7 @@ WHERE service=$1 AND action_name=$2 AND version=$3`, service, name, version)
 		&inSchema, &outSchema, &reg.ErrorCodes, &retryJSON, &reg.DefaultTimeoutMS,
 		&reg.Deprecated, &reg.RegisteredAt, &reg.ServiceVersion,
 		&reg.DryRunSupported, &reg.LicenseGroup,
+		&reg.Transport, &reg.Address,
 	); err != nil {
 		if err == pgx.ErrNoRows {
 			return domain.ActionRegistration{}, store.ErrNotFound{

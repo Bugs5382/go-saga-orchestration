@@ -83,6 +83,47 @@ func TestRegistryHandler_RegisterThenList(t *testing.T) {
 	}
 }
 
+func TestRegistryHandler_DispatchDescriptor_RoundTripsOverREST(t *testing.T) {
+	s := memory.New()
+	h := NewRegistryHandler(s)
+	r := chi.NewRouter()
+	r.Post("/api/v1/registry/register", h.Register)
+	r.Get("/api/v1/registry/actions", h.List)
+
+	regBody := registerReq{
+		Service:        "example",
+		ServiceVersion: "1.0.0",
+		Actions: []domain.ActionRegistration{
+			{ActionName: "set_state", Version: 1,
+				Transport: domain.TransportHTTP, Address: "https://worker.local/cb"},
+		},
+	}
+	body, _ := json.Marshal(regBody)
+	req := httptest.NewRequest("POST", "/api/v1/registry/register", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("register status = %d, body=%s", w.Code, w.Body.String())
+	}
+
+	req = httptest.NewRequest("GET", "/api/v1/registry/actions?service=example", nil)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	var resp struct {
+		Actions []domain.ActionRegistration `json:"actions"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Actions) != 1 {
+		t.Fatalf("actions = %d, want 1", len(resp.Actions))
+	}
+	if resp.Actions[0].Transport != domain.TransportHTTP || resp.Actions[0].Address != "https://worker.local/cb" {
+		t.Errorf("dispatch descriptor = %q/%q, want http/https://worker.local/cb",
+			resp.Actions[0].Transport, resp.Actions[0].Address)
+	}
+}
+
 func TestRegistryHandler_Register_RejectsEmpty(t *testing.T) {
 	s := memory.New()
 	h := NewRegistryHandler(s)

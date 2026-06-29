@@ -66,14 +66,17 @@ type Coordinator struct {
 // A nil lr is normalised to StubAllowAll so callers need not guard.
 // emitter is the EventEmitter used by emit_event steps. Pass nil in tests
 // that do not exercise emit_event — EmitEventVerb checks for nil.
-func NewCoordinator(s store.Store, pub Publisher, clk clock.Clock, sec secrets.Resolver, lr licensing.Resolver, actionPub verbs.ActionDispatchPublisher, emitter verbs.EventEmitter) *Coordinator {
+// opts wire optional verb dependencies, e.g. the http/rmq action dispatchers
+// for the dispatch-descriptor feature (verbs.WithHTTPDispatcher /
+// verbs.WithRMQDispatcher); omit them for the gRPC-only default. (issue #59)
+func NewCoordinator(s store.Store, pub Publisher, clk clock.Clock, sec secrets.Resolver, lr licensing.Resolver, actionPub verbs.ActionDispatchPublisher, emitter verbs.EventEmitter, opts ...verbs.DefaultOption) *Coordinator {
 	if lr == nil {
 		lr = licensing.StubAllowAll{}
 	}
 	c := &Coordinator{
 		store:     s,
 		publisher: pub,
-		verbs:     verbs.Default(s, clk, sec, pub, actionPub, emitter),
+		verbs:     verbs.Default(s, clk, sec, pub, actionPub, emitter, opts...),
 		clock:     clk,
 		secrets:   sec,
 		licensing: lr,

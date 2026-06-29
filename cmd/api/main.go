@@ -92,6 +92,7 @@ func main() {
 	signals := api.NewSignalHandler(st, pub)
 	userTasks := api.NewUserTaskHandler(st, pub)
 	reg := api.NewRegistryHandler(st)
+	actionResults := api.NewActionResultHandler(st, pub)
 	rules := api.NewRulesHandler(st)
 	triggers := api.NewTriggerHandler(st, licensing.StubAllowAll{}, clock.SystemClock{})
 	var pgPool *pgxpool.Pool
@@ -100,7 +101,7 @@ func main() {
 	}
 	streamH := api.NewSagaStreamHandler(st, pgPool)
 	workflows := api.NewWorkflowHandler(st)
-	router := api.NewRouter(st, sagas, signals, userTasks, reg, rules, triggers, streamH, workflows)
+	router := api.NewRouter(st, sagas, signals, userTasks, reg, rules, triggers, streamH, workflows, actionResults)
 	srv := &http.Server{Addr: ":" + cfg.API.Port, Handler: router}
 
 	go func() {

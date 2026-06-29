@@ -39,6 +39,24 @@ type ActionDispatchPublisher interface {
 	PublishActionDispatch(ctx context.Context, routingKey string, payload []byte) error
 }
 
+// ActionHTTPDispatcher delivers an action dispatch payload to a worker over an
+// HTTP callback. Used when an ActionRegistration declares transport="http".
+// address is the callback URL from the registration; payload is the marshalled
+// ActionPayload. The worker reports its result asynchronously via the
+// result-callback REST endpoint. (issue #59)
+type ActionHTTPDispatcher interface {
+	DispatchHTTP(ctx context.Context, address string, payload []byte) error
+}
+
+// ActionRMQDispatcher delivers an action dispatch payload to a worker by
+// publishing it to a named RabbitMQ queue. Used when an ActionRegistration
+// declares transport="rmq"; address is the queue name from the registration.
+// The worker reports its result asynchronously via the result-callback REST
+// endpoint. (issue #59)
+type ActionRMQDispatcher interface {
+	DispatchRMQQueue(ctx context.Context, queue string, payload []byte) error
+}
+
 // EventEmitter publishes an event other sagas/triggers can match. Real impls:
 // an in-process matcher (embedded) or a RabbitMQ publisher (service mode).
 type EventEmitter interface {

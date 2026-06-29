@@ -81,6 +81,19 @@ func (p *Publisher) PublishActionDispatch(ctx context.Context, routingKey string
 		})
 }
 
+// DispatchRMQQueue publishes an action dispatch payload directly to a named
+// queue via the default exchange (routing key = queue name). Used for
+// transport="rmq" action registrations where the worker consumes its own
+// queue rather than binding to ExchangeAction. (issue #59)
+func (p *Publisher) DispatchRMQQueue(ctx context.Context, queue string, payload []byte) error {
+	return p.ch.PublishWithContext(ctx, "" /*default exchange*/, queue, false, false,
+		amqp.Publishing{
+			ContentType:  "application/json",
+			DeliveryMode: amqp.Persistent,
+			Body:         payload,
+		})
+}
+
 // PublishEvent publishes a named event to ExchangeWorkflowEvents with topic
 // as the routing key. Headers are published as AMQP headers. Payload is
 // JSON-encoded as the body (nil payload encodes as "null").
