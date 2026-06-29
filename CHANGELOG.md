@@ -6,6 +6,7 @@
 
 #### 🚀 Features
 
+- feat(deploy): gate cron dispatcher for a dedicated isolated engine pod @Bugs5382 (#76)
 - feat(engine): execute step-level retry and compensation @Bugs5382 (#77)
 - feat(engine): set TriggerID and record trigger-fire audit rows @Bugs5382 (#72)
 - feat(registry): optional dispatch descriptor (http/rmq) on ActionRegistration @Bugs5382 (#73)
