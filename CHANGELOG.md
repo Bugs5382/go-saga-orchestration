@@ -6,6 +6,7 @@
 
 #### 🚀 Features
 
+- feat(registry): optional dispatch descriptor (http/rmq) on ActionRegistration @Bugs5382 (#73)
 - feat(engine): interval-based cron cadences @Bugs5382 (#70)
 - feat(engine): cron-scheduled workflow triggers @Bugs5382 (#68)
 - feat(deploy): publish container images and a Helm chart @Bugs5382 (#65)
