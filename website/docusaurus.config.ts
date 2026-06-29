@@ -25,6 +25,11 @@ const config: Config = {
           sidebarPath: './sidebars.ts',
           editUrl:
             'https://github.com/Bugs5382/go-saga-orchestration/tree/main/website/',
+          // The live docs are the unreleased "next" line; released snapshots
+          // (0.2.2 … 0.1.0) live in versioned_docs/. Default to latest stable.
+          versions: {
+            current: {label: 'v0.3.0 (next)', path: 'next', banner: 'unreleased'},
+          },
         },
         blog: false,
         theme: {
@@ -39,13 +44,15 @@ const config: Config = {
       defaultMode: 'dark',
       respectPrefersColorScheme: false,
     },
+    docs: {
+      sidebar: {hideable: true, autoCollapseCategories: true},
+    },
     navbar: {
       title: 'go-saga-orchestration',
       items: [
         {type: 'docSidebar', sidebarId: 'docsSidebar', position: 'left', label: 'Docs'},
         {to: '/changelog', label: 'Changelog', position: 'left'},
-        // Re-add {type: 'docsVersionDropdown'} once the first release cuts a
-        // versioned snapshot — with only the current docs it just reads "Next".
+        {type: 'docsVersionDropdown', position: 'right'},
         {
           href: 'https://github.com/Bugs5382/go-saga-orchestration',
           label: 'GitHub',

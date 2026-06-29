@@ -49,7 +49,52 @@ func main() {
 }
 ```
 
-## 3. Error handling and compensation
+## 3. Recovering from errors with `try_catch`
 
-_(Worked examples covering retries, `try/catch`, and compensation steps land here — see
-[Verbs](verbs) for the full step catalog and [Embedding](embedding) for production wiring.)_
+When a step returns an error, the run normally transitions to `failed`. To recover
+instead, wrap the risky steps in a `try_catch` frame: if any step inside the
+protected region errors, the saga jumps to your `catch` step rather than failing,
+and the error is written to `Variables._error`.
+
+```go
+sc := saga.InMemory()
+
+// A step that fails.
+sc.RegisterVerb("charge_card", "common",
+	verbs.HandlerFunc(func(_ context.Context, _ domain.SagaRun, _ domain.Step) (map[string]any, error) {
+		return nil, fmt.Errorf("gateway declined")
+	}))
+
+// The catch handler — it can read the error context off Variables._error.
+sc.RegisterVerb("notify_ops", "common",
+	verbs.HandlerFunc(func(_ context.Context, run domain.SagaRun, _ domain.Step) (map[string]any, error) {
+		errInfo, _ := run.Variables["_error"].(map[string]any)
+		return map[string]any{"recovered": true, "failed_step": errInfo["step_id"]}, nil
+	}))
+
+sc.Register(domain.WorkflowDefinition{
+	ID: "checkout", Version: 1, Start: "protect", Published: true,
+	Steps: []domain.Step{
+		// The frame: protect "charge", jump to "recover" on any error.
+		{ID: "protect", Type: "try_catch",
+			Inputs: map[string]any{"try": []string{"charge"}, "catch": "recover"},
+			Next:   "charge"},
+		{ID: "charge", Type: "charge_card", Next: "done"},
+		{ID: "recover", Type: "notify_ops", Next: "done"},
+		{ID: "done", Type: domain.StepTypeEnd},
+	},
+})
+
+runID, _ := sc.Start(context.Background(), "checkout", nil)
+run, _ := sc.Get(context.Background(), runID)
+fmt.Println(run.State)                  // succeeded — the error was caught
+fmt.Println(run.Variables["recovered"]) // true
+```
+
+The `try_catch` step's `Next` points at the **first step inside** the protected
+region; the protected step's `Next` points past it. See the
+[`try_catch` verb](verbs#try_catch) for the nesting rules, and [Testing](testing)
+for asserting both the caught and uncaught (`failed`) paths.
+
+> The `Step.Retry` and `Step.Compensation` fields exist on the schema but are not
+> yet executed by the engine — `try_catch` is the supported recovery mechanism today.

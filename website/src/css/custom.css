@@ -4,7 +4,7 @@
  * text #c9c9c9, sky-blue accent #90c1f3, Oswald headings. Generalized into the shared
  * theme + per-owner variants in Bugs5382/project-template#57.
  */
-@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Oswald:wght@400;500;600;700&display=swap');
 
 :root {
   /* Monochrome accent (links, headings). Sky-blue is reserved for the
@@ -18,8 +18,9 @@
   --ifm-color-primary-lightest: #6e6e6e;
   --ifm-code-font-size: 95%;
   --ifm-global-radius: 0.5rem;
+  --ifm-font-family-base: 'Inter', system-ui, -apple-system, sans-serif;
   --ifm-heading-font-family: 'Oswald', sans-serif;
-  --ifm-font-family-monospace: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --ifm-font-family-monospace: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --docusaurus-highlighted-code-line-bg: rgba(47, 111, 179, 0.1);
 }
 
