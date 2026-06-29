@@ -60,9 +60,10 @@
   color: #90c1f3;
 }
 .theme-doc-version-badge {
-  background-color: #15243b;
-  border: 1px solid #90c1f3;
-  color: #cfe3fb;
+  background-color: #2f6fb3;
+  border: 1px solid #5b95d6;
+  color: #ffffff;
+  font-weight: 600;
 }
 
 .navbar {
