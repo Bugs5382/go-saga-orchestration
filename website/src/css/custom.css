@@ -66,6 +66,39 @@
   font-weight: 600;
 }
 
+/* Collapse toggle for the right-side table of contents (see src/theme/TOC). */
+.tocCollapsibleToggle {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0 0 0.5rem;
+  margin: 0;
+  background: none;
+  border: none;
+  color: var(--ifm-color-content-secondary);
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.tocCollapsibleToggle:hover {
+  color: var(--ifm-heading-color);
+}
+.tocChevron {
+  display: inline-block;
+  border: solid currentColor;
+  border-width: 0 1.5px 1.5px 0;
+  padding: 2.5px;
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+.tocChevronOpen {
+  transform: rotate(45deg);
+}
+
 .navbar {
   border-bottom: 1px solid #444444;
 }

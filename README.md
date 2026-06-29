@@ -146,3 +146,12 @@ All configuration is via environment variables (`internal/config/config.go`):
 ## History
 
 Built as a standalone, solution-agnostic saga engine. The orchestrator and the CEL rule evaluator are deliberately decoupled from any single application so the project can be embedded as a library or run as a service across unrelated solutions.
+
+---
+
+## Acknowledgments
+
+I couldn't have done this work without my wife, daughter, and son — thank you for
+letting me geek out and give something back to the community.
+
+And thank you to everyone who contributes to and uses this module. 🐰
