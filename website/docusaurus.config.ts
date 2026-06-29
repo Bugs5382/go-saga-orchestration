@@ -85,7 +85,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `🐰 Copyright © ${new Date().getFullYear()} Shane — the rabbit hole`,
+      copyright: `🐰 Copyright © ${new Date().getFullYear()} Shane — <a href="https://therabbithole.com" target="_blank" rel="noopener noreferrer">the rabbit hole</a>`,
     },
     prism: {
       theme: prismThemes.github,
