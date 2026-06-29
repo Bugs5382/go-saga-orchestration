@@ -43,6 +43,7 @@ const config: Config = {
       title: 'go-saga-orchestration',
       items: [
         {type: 'docSidebar', sidebarId: 'docsSidebar', position: 'left', label: 'Docs'},
+        {to: '/changelog', label: 'Changelog', position: 'left'},
         {type: 'docsVersionDropdown', position: 'right'},
         {
           href: 'https://github.com/Bugs5382/go-saga-orchestration',

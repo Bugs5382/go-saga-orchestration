@@ -10,14 +10,19 @@ npm install
 npm start          # dev server at http://localhost:3000/go-saga-orchestration/
 ```
 
+This `docs/` folder is the **single source of truth** for the documentation —
+there is no top-level `docs/` in the repo. Edit the Markdown here.
+
 `npm start`/`npm run build` run a `gen` step first (`npm run gen`) which:
 
 - generates the Go **API reference** from godoc into `docs/reference/` via
-  [`gomarkdoc`](https://github.com/princjef/gomarkdoc) (`scripts/gen-api.sh`), and
-- copies the repo `CHANGELOG.md` into `src/pages/changelog.md` (`scripts/sync-changelog.mjs`).
+  [`gomarkdoc`](https://github.com/princjef/gomarkdoc) (`scripts/gen-api.sh`),
+- copies the repo `CHANGELOG.md` into `src/pages/changelog.md` (`scripts/sync-changelog.mjs`), and
+- builds the **AI-agent bundle** — `static/llms.txt` (index) and `static/llms-full.txt`
+  (every page as plain Markdown), served at the site root (`scripts/gen-llms.mjs`).
 
-Both outputs are generated (gitignored) — never hand-edit `docs/reference/` or
-`src/pages/changelog.md`.
+These outputs are all generated (gitignored) — never hand-edit `docs/reference/`,
+`src/pages/changelog.md`, or `static/llms*.txt`.
 
 ## Build
 

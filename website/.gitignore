@@ -19,6 +19,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Generated docs (API reference via gomarkdoc, changelog copy)
+# Generated docs (API reference via gomarkdoc, changelog copy, LLM bundle)
 /docs/reference
 /src/pages/changelog.md
+/static/llms.txt
+/static/llms-full.txt

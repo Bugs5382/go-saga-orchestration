@@ -4,7 +4,7 @@ External workers report progress on dispatched saga actions to the engine over a
 gRPC stream. This document describes that wire protocol for SDK authors and
 integrators.
 
-The schema source of truth is [`proto/liveness.proto`](../proto/liveness.proto)
+The schema source of truth is [`proto/liveness.proto`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/proto/liveness.proto)
 (proto package `saga.v1`, Go package `livenesspb`). This doc explains it;
 the `.proto` file remains authoritative for exact wire layout.
 

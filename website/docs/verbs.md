@@ -61,7 +61,7 @@ Dispatches the step to a named worker process and **pauses the saga** until the 
 
 > ⚠️ In embedded mode (`saga.InMemory()`) the action verb publishes to an in-process publisher. You still need a worker goroutine (or service mode) to actually handle the dispatch; a plain in-memory saga with no registered worker handler will leave the run paused indefinitely.
 
-**Example:** [`examples/workflows/action.json`](../examples/workflows/action.json)
+**Example:** [`examples/workflows/action.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/action.json)
 
 ---
 
@@ -76,7 +76,7 @@ Evaluates a stored decision-table rule and returns its output map. The engine re
 
 **Output:** The rule's full output map (including `branch`) is merged into `Variables`.
 
-**Example:** [`examples/workflows/decision.json`](../examples/workflows/decision.json)
+**Example:** [`examples/workflows/decision.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/decision.json)
 
 ---
 
@@ -90,7 +90,7 @@ Evaluates a CEL expression to a string and routes via `step.Branches`. Simpler t
 
 **Output:** `{"branch": "<result>"}` — the engine picks `step.Branches[<result>].Next`. An unknown branch value is a runtime error.
 
-**Example:** [`examples/workflows/switch.json`](../examples/workflows/switch.json)
+**Example:** [`examples/workflows/switch.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/switch.json)
 
 ---
 
@@ -105,7 +105,7 @@ Immediately fails the saga as a non-retryable error.
 
 **Output:** None — the run terminates as `failed`.
 
-**Example:** [`examples/workflows/error.json`](../examples/workflows/error.json)
+**Example:** [`examples/workflows/error.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/error.json)
 
 ---
 
@@ -115,7 +115,7 @@ Does nothing. Advances to `step.Next`. Useful as a placeholder during developmen
 
 **Inputs:** none. **Output:** empty map.
 
-**Example:** [`examples/workflows/noop.json`](../examples/workflows/noop.json)
+**Example:** [`examples/workflows/noop.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/noop.json)
 
 ---
 
@@ -141,7 +141,7 @@ Writes a value to a variable. Use it to seed variables before CEL verbs read the
 
 **Output:** `{out_var: <value>}`.
 
-**Example:** [`examples/workflows/set_var.json`](../examples/workflows/set_var.json)
+**Example:** [`examples/workflows/set_var.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/set_var.json)
 
 ---
 
@@ -156,7 +156,7 @@ Evaluates a CEL expression and writes the result to a named variable. Equivalent
 
 **Output:** `{out_var: <result>}`.
 
-**Example:** [`examples/workflows/transform.json`](../examples/workflows/transform.json)
+**Example:** [`examples/workflows/transform.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/transform.json)
 
 ---
 
@@ -171,7 +171,7 @@ Evaluates a CEL expression that must produce a map, then **deep-merges** it into
 
 **Output:** The merged variable value under its existing key.
 
-**Example:** [`examples/workflows/merge.json`](../examples/workflows/merge.json)
+**Example:** [`examples/workflows/merge.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/merge.json)
 
 ---
 
@@ -187,7 +187,7 @@ Keeps list elements where a CEL predicate is truthy.
 
 **Output:** `{out_var: [filtered list]}`.
 
-**Example:** [`examples/workflows/filter.json`](../examples/workflows/filter.json)
+**Example:** [`examples/workflows/filter.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/filter.json)
 
 ---
 
@@ -203,7 +203,7 @@ Transforms every element of a list with a CEL expression.
 
 **Output:** `{out_var: [mapped list]}`.
 
-**Example:** [`examples/workflows/map.json`](../examples/workflows/map.json)
+**Example:** [`examples/workflows/map.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/map.json)
 
 ---
 
@@ -218,7 +218,7 @@ Fails the saga if a CEL expression is not truthy. Use it for invariant checks mi
 
 **Output:** Empty map on success; non-retryable error on failure.
 
-**Example:** [`examples/workflows/assert.json`](../examples/workflows/assert.json)
+**Example:** [`examples/workflows/assert.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/assert.json)
 
 ---
 
@@ -235,7 +235,7 @@ Emits a structured log line via the engine's logger.
 
 **Output:** Empty map.
 
-**Example:** [`examples/workflows/log.json`](../examples/workflows/log.json)
+**Example:** [`examples/workflows/log.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/log.json)
 
 ---
 
@@ -251,7 +251,7 @@ Appends a named metric event to the run's audit stream. _(Prometheus side-channe
 
 **Output:** Empty map.
 
-**Example:** [`examples/workflows/metric_emit.json`](../examples/workflows/metric_emit.json)
+**Example:** [`examples/workflows/metric_emit.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/metric_emit.json)
 
 ---
 
@@ -278,7 +278,7 @@ Issues a synchronous outbound HTTP request and merges the response into `Variabl
 
 > ⚠️ License group is `common` only for `GET` with no `secret_ref`. Any other method or authenticated request requires the `external_io_advanced` group.
 
-**Example:** [`examples/workflows/http_request.json`](../examples/workflows/http_request.json)
+**Example:** [`examples/workflows/http_request.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/http_request.json)
 
 ---
 
@@ -299,7 +299,7 @@ POSTs a JSON payload to an external URL, with optional HMAC-SHA256 request signi
 **Output (sync mode):** `{out_var}_status` — `int64` HTTP status code.  
 **Output (async mode):** `{out_var}_async: true`.
 
-**Example:** [`examples/workflows/webhook_emit.json`](../examples/workflows/webhook_emit.json)
+**Example:** [`examples/workflows/webhook_emit.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/webhook_emit.json)
 
 ---
 
@@ -315,7 +315,7 @@ Pauses the saga for a duration expressed as a Go duration string.
 
 The engine's timer dispatcher wakes the run when the deadline passes.
 
-**Example:** [`examples/workflows/wait_duration.json`](../examples/workflows/wait_duration.json)
+**Example:** [`examples/workflows/wait_duration.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/wait_duration.json)
 
 ---
 
@@ -327,7 +327,7 @@ Pauses the saga until an absolute point in time.
 |---|---|---|
 | `timestamp` | ✅ | RFC3339 datetime string, e.g. `"2026-01-01T09:00:00Z"`. |
 
-**Example:** [`examples/workflows/wait_until.json`](../examples/workflows/wait_until.json)
+**Example:** [`examples/workflows/wait_until.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/wait_until.json)
 
 ---
 
@@ -346,7 +346,7 @@ Pauses the saga until a named external signal arrives via `POST /api/v1/sagas/{r
 
 > 💡 Wire a `timeout` branch to an escalation step to handle missed approvals or SLA breaches without any extra polling.
 
-**Example:** [`examples/workflows/wait_for_signal.json`](../examples/workflows/wait_for_signal.json)
+**Example:** [`examples/workflows/wait_for_signal.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/wait_for_signal.json)
 
 ---
 
@@ -362,7 +362,7 @@ Pauses the saga until an event with a matching topic (and optional header subset
 
 > 💡 Add a `"timeout"` entry to the step's `branches` to escalate when no matching event arrives before `timeout_s` (same pattern as `wait_for_signal`).
 
-**Example:** [`examples/workflows/wait_for_event.json`](../examples/workflows/wait_for_event.json)
+**Example:** [`examples/workflows/wait_for_event.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/wait_for_event.json)
 
 ---
 
@@ -378,7 +378,7 @@ Sends a signal to another run (the send-side complement of `wait_for_signal`). I
 
 **Output:** Empty map.
 
-**Example:** [`examples/workflows/emit_signal.json`](../examples/workflows/emit_signal.json)
+**Example:** [`examples/workflows/emit_signal.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/emit_signal.json)
 
 ---
 
@@ -396,7 +396,7 @@ Publishes an event via the configured `EventEmitter` (in-process when embedded; 
 
 > 💡 In embedded mode the in-process emitter both wakes runs awaiting the topic **and** runs the trigger dispatcher, so matching `record_transition` triggers start new runs — parity with service mode (no broker needed).
 
-**Example:** [`examples/workflows/emit_event.json`](../examples/workflows/emit_event.json)
+**Example:** [`examples/workflows/emit_event.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/emit_event.json)
 
 ---
 
@@ -420,7 +420,7 @@ Loops while a CEL condition evaluates to `true`.
 
 An iteration counter is maintained at `Variables._while.<step_id>.iter`.
 
-**Example:** [`examples/workflows/while.json`](../examples/workflows/while.json)
+**Example:** [`examples/workflows/while.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/while.json)
 
 ---
 
@@ -435,7 +435,7 @@ Pushes an error-handler frame. If any step inside the protected region errors, t
 
 **Wiring:** set `step.Next` to the first step inside the `try` body. The body's last step sets `next` to whatever comes after the protected region.
 
-**Example:** [`examples/workflows/try_catch.json`](../examples/workflows/try_catch.json)
+**Example:** [`examples/workflows/try_catch.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/try_catch.json)
 
 ---
 
@@ -453,7 +453,7 @@ Cancels a run.
 
 > ⚠️ When you cancel a run that is a child of a `parallel` join, the join may be left waiting if the join strategy expects all children. The cancelled child is counted as terminal, so with `join_strategy: "all"` the parent will eventually time out or remain paused unless all other children also complete.
 
-**Example:** [`examples/workflows/cancel.json`](../examples/workflows/cancel.json)
+**Example:** [`examples/workflows/cancel.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/cancel.json)
 
 ---
 
@@ -473,7 +473,7 @@ Fans out N branches as child runs and pauses the parent until the join strategy 
 
 > ⚠️ Remaining branches continue to run after a quorum wake — they are not cancelled.
 
-**Example:** [`examples/workflows/parallel.json`](../examples/workflows/parallel.json)
+**Example:** [`examples/workflows/parallel.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/parallel.json)
 
 ---
 
@@ -490,7 +490,7 @@ Fans out one child run per element of a CEL-evaluated list (parallel mode only i
 
 Each child run receives `Variables._foreach_item` (the element) and `Variables._foreach_index` (zero-based index). An empty list advances without spawning.
 
-**Example:** [`examples/workflows/foreach.json`](../examples/workflows/foreach.json)
+**Example:** [`examples/workflows/foreach.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/foreach.json)
 
 ---
 
@@ -508,7 +508,7 @@ Starts a named workflow as a child saga and **pauses the parent** until the chil
 
 **Output:** Empty map on parent resume (child variables are not automatically merged; wire a `set_var`/`transform` after if needed).
 
-**Example:** [`examples/workflows/sub_saga.json`](../examples/workflows/sub_saga.json)
+**Example:** [`examples/workflows/sub_saga.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/sub_saga.json)
 
 ---
 
@@ -524,7 +524,7 @@ Starts a named workflow as a **fire-and-forget** child. The parent continues imm
 
 **Output:** Empty map; parent is not paused.
 
-**Example:** [`examples/workflows/spawn_saga.json`](../examples/workflows/spawn_saga.json)
+**Example:** [`examples/workflows/spawn_saga.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/spawn_saga.json)
 
 ---
 
@@ -542,7 +542,7 @@ Creates a user task and pauses the saga until the assignee submits it via `POST 
 
 **Output:** None on pause; the submitted form data is available after the run resumes.
 
-**Example:** [`examples/workflows/manual_approval.json`](../examples/workflows/manual_approval.json)
+**Example:** [`examples/workflows/manual_approval.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/manual_approval.json)
 
 ---
 
@@ -558,4 +558,4 @@ Like `manual_approval` but `form_schema` is **required**. Use this when the work
 
 **Output:** None on pause.
 
-**Example:** [`examples/workflows/collect_input.json`](../examples/workflows/collect_input.json)
+**Example:** [`examples/workflows/collect_input.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/collect_input.json)

@@ -6,7 +6,7 @@ A standalone, solution-agnostic **saga orchestrator + synchronous CEL rule evalu
 
 ## ✨ Features
 
-- **31 saga step types** — data transforms, HTTP/webhooks, timers, signals, events, parallel fan-out, foreach, loops, try/catch, human tasks, sub-sagas, and more (see [`docs/verbs.md`](docs/verbs.md)).
+- **31 saga step types** — data transforms, HTTP/webhooks, timers, signals, events, parallel fan-out, foreach, loops, try/catch, human tasks, sub-sagas, and more (see the [verb reference](https://bugs5382.github.io/go-saga-orchestration/docs/verbs)).
 - **Embed or deploy** — run in-process with zero infrastructure, or deploy as two Docker-friendly binaries backed by Postgres + RabbitMQ.
 - **CEL expressions** — [Google Common Expression Language](https://cel.dev) for conditions, transforms, filters, and routing, all evaluated against live run variables.
 - **Named entrypoints** — `Entrypoints map[string]string` on a `WorkflowDefinition` lets a single workflow serve multiple start scenarios; triggers and `sub_saga`/`spawn_saga` accept an `entrypoint` input.
@@ -49,7 +49,7 @@ run, _ := sc.Get(context.Background(), runID)
 _ = run.State // succeeded
 ```
 
-See [`examples/basic`](examples/basic) for a runnable standalone example, and [`docs/embedding.md`](docs/embedding.md) for the full embedding guide including production wiring.
+See [`examples/basic`](examples/basic) for a runnable standalone example, and the [embedding guide](https://bugs5382.github.io/go-saga-orchestration/docs/embedding) for the full walkthrough including custom verbs, testing, and production wiring.
 
 ---
 
@@ -70,18 +70,19 @@ See [`examples/basic`](examples/basic) for a runnable standalone example, and [`
 
 ## 📚 Docs
 
-📖 **Documentation site:** <https://bugs5382.github.io/go-saga-orchestration/> — the searchable, versioned site (with the generated Go API reference) built from the `docs/` below.
+📖 **Documentation site:** <https://bugs5382.github.io/go-saga-orchestration/> — the searchable, versioned site, with the generated Go API reference, the per-version changelog, and an [`llms-full.txt`](https://bugs5382.github.io/go-saga-orchestration/llms-full.txt) bundle for AI agents. The Markdown source lives in [`website/docs/`](website/docs).
 
 | Doc | What it covers |
 |---|---|
-| [`docs/verbs.md`](docs/verbs.md) | Complete reference for all 31 step types — inputs, outputs, license groups, and example links |
-| [`docs/embedding.md`](docs/embedding.md) | Quickstart, custom verbs, data flow, entry points, production wiring, lifecycle, service mode |
-| [`docs/stores.md`](docs/stores.md) | Store backend selection (`STORE_TYPE`), env vars, Redis/Valkey durability, `REDIS_RUN_TTL`, and the stream-requires-postgres limitation |
-| [`docs/caveats.md`](docs/caveats.md) | Limitations and common gotchas with workarounds |
-| [`docs/architecture.md`](docs/architecture.md) | Engine internals, coordinator, MQ topology, stores, request flow, CEL rules |
-| [`docs/api.md`](docs/api.md) + [`api/openapi.yaml`](api/openapi.yaml) | REST API reference (17 endpoints) and OpenAPI 3 spec |
-| [`docs/grpc.md`](docs/grpc.md) | The `WorkerLiveness.ExecuteStep` worker protocol |
-| [`docs/deployment.md`](docs/deployment.md) | Container images (GHCR) and Helm chart deployment |
+| [Verb reference](https://bugs5382.github.io/go-saga-orchestration/docs/verbs) | Complete reference for all 31 step types — inputs, outputs, license groups, and example links |
+| [Embedding guide](https://bugs5382.github.io/go-saga-orchestration/docs/embedding) | Quickstart, custom verbs, custom actions, data flow, entry points, production wiring, lifecycle, service mode |
+| [Testing sagas](https://bugs5382.github.io/go-saga-orchestration/docs/testing) | Writing unit tests for workflows and custom verbs with the in-memory store |
+| [Store backends](https://bugs5382.github.io/go-saga-orchestration/docs/stores) | Store backend selection (`STORE_TYPE`), env vars, Redis/Valkey durability, `REDIS_RUN_TTL`, and the stream-requires-postgres limitation |
+| [Caveats](https://bugs5382.github.io/go-saga-orchestration/docs/caveats) | Limitations and common gotchas with workarounds |
+| [Architecture](https://bugs5382.github.io/go-saga-orchestration/docs/architecture) | Engine internals, coordinator, MQ topology, stores, request flow, CEL rules |
+| [REST API guide](https://bugs5382.github.io/go-saga-orchestration/docs/api) + [`api/openapi.yaml`](api/openapi.yaml) | REST API reference (17 endpoints) and OpenAPI 3 spec |
+| [gRPC workers](https://bugs5382.github.io/go-saga-orchestration/docs/grpc) | The `WorkerLiveness.ExecuteStep` worker protocol |
+| [Deployment](https://bugs5382.github.io/go-saga-orchestration/docs/deployment) | Container images (GHCR) and Helm chart deployment |
 | [`clients/go/worker/README.md`](clients/go/worker/README.md) | Go worker SDK |
 | [`examples/`](examples/) | Basic embed example and 31 per-verb workflow JSON files |
 
@@ -110,7 +111,7 @@ All configuration is via environment variables (`internal/config/config.go`):
 | `WORKFLOW_ENGINE_GRPC_PORT` | `9090` | engine | gRPC worker server port |
 | `DATABASE_DSN` | _(empty)_ | both | Postgres connection string (durable store) |
 | `RABBITMQ_URL` | _(empty)_ | both | RabbitMQ connection URL (step dispatch) |
-| `STORE_TYPE` | `postgres` | both | Store backend: `postgres` (default) \| `redis` \| `valkey` \| `memory` — see [`docs/stores.md`](docs/stores.md) |
+| `STORE_TYPE` | `postgres` | both | Store backend: `postgres` (default) \| `redis` \| `valkey` \| `memory` — see [Store backends](https://bugs5382.github.io/go-saga-orchestration/docs/stores) |
 | `REDIS_URL` | _(empty)_ | both | Redis/Valkey connection URL (required when `STORE_TYPE` is `redis` or `valkey`) |
 | `REDIS_RUN_TTL` | `0s` | both | Go duration; auto-expire terminal-run keys after this window (default `0s` = keep forever) |
 
@@ -137,7 +138,7 @@ All configuration is via environment variables (`internal/config/config.go`):
 - `clients/go/worker` — Go worker SDK (nested module) for consuming services.
 - `proto/` — gRPC worker liveness service + generated code.
 - `test/e2e` — end-to-end tests (require Postgres + RabbitMQ).
-- `deployments/helm` — Helm chart deploying the api and engine (see [`docs/deployment.md`](docs/deployment.md)).
+- `deployments/helm` — Helm chart deploying the api and engine (see [Deployment](https://bugs5382.github.io/go-saga-orchestration/docs/deployment)).
 - `ui/` — reserved for the future reusable UI framework (outside the Go module; planned).
 
 ---

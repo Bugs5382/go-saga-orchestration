@@ -1,3 +1,7 @@
+---
+sidebar_position: 2
+---
+
 # 🧩 Embedding Guide
 
 This guide walks you through adding `go-saga-orchestration` as an in-process library to your Go service — from a thirty-second hello world all the way to production wiring.
@@ -38,7 +42,7 @@ fmt.Println(run.State) // succeeded
 
 `sc.Start` creates the run **and** advances it synchronously to the first pause or terminal state, so for an all-synchronous workflow the run is already complete by the time `Start` returns.
 
-> 💡 See [`examples/basic`](../examples/basic) for a runnable standalone example.
+> 💡 See [`examples/basic`](https://github.com/Bugs5382/go-saga-orchestration/tree/main/examples/basic) for a runnable standalone example.
 
 ---
 
@@ -81,11 +85,11 @@ For steps that need to run in a **separate process** (e.g. a microservice that o
 }
 ```
 
-The engine dispatches `payments.charge_card` over the configured publisher (RabbitMQ in service mode, in-process in embedded mode). A worker process built with the [Go worker SDK](../clients/go/worker) connects over the gRPC `ExecuteStep` stream, registers a handler for `payments.charge_card`, and returns a result map that is merged into `Variables`.
+The engine dispatches `payments.charge_card` over the configured publisher (RabbitMQ in service mode, in-process in embedded mode). A worker process built with the [Go worker SDK](https://github.com/Bugs5382/go-saga-orchestration/tree/main/clients/go/worker) connects over the gRPC `ExecuteStep` stream, registers a handler for `payments.charge_card`, and returns a result map that is merged into `Variables`.
 
 > ⚠️ Pure `saga.InMemory()` with no worker goroutine will leave an `action` step paused indefinitely — the action verb pauses the saga and waits for a worker reply. You need either a worker process (service mode) or a registered `RegisterVerb` handler with the same step type to handle it in-process.
 
-See [`docs/grpc.md`](grpc.md) for the worker protocol and [`clients/go/worker`](../clients/go/worker) for the SDK.
+See [`docs/grpc.md`](grpc.md) for the worker protocol and [`clients/go/worker`](https://github.com/Bugs5382/go-saga-orchestration/tree/main/clients/go/worker) for the SDK.
 
 ---
 
@@ -99,10 +103,10 @@ Each step operates on exactly one verb, and all data flows through `run.Variable
 start → set_var (out_var: "items", value: [...]) → filter → transform → end
 ```
 
-**Two worked scenarios in [`examples/workflows/`](../examples/workflows/):**
+**Two worked scenarios in [`examples/workflows/`](https://github.com/Bugs5382/go-saga-orchestration/tree/main/examples/workflows):**
 
-- [`scenario_action_to_setvar.json`](../examples/workflows/scenario_action_to_setvar.json) — an `action` step returns a result, then a `set_var` step reads the worker's output key and assigns it to a clean variable name for downstream steps.
-- [`scenario_parallel_setvars.json`](../examples/workflows/scenario_parallel_setvars.json) — parallel branches each write to distinct variables, which are available after the join.
+- [`scenario_action_to_setvar.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/scenario_action_to_setvar.json) — an `action` step returns a result, then a `set_var` step reads the worker's output key and assigns it to a clean variable name for downstream steps.
+- [`scenario_parallel_setvars.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/scenario_parallel_setvars.json) — parallel branches each write to distinct variables, which are available after the join.
 
 > 💡 Prefer descriptive `out_var` names. The `http_request` and `webhook_emit` verbs default to `http_result` / `webhook_result` — override `out_var` to avoid collisions when you call multiple endpoints in the same workflow.
 
@@ -167,7 +171,7 @@ Key option notes:
 - **`Licensing`**: omit (or pass `nil`) for `StubAllowAll` (all groups permitted). Provide your own `licensing.Resolver` to gate feature groups in production.
 - **`Secrets`**: omit for an in-memory store seeded from a map. Provide a Vault-backed (or similar) resolver for production.
 - **`Publisher`**: omit for in-process fan-out. Provide a RabbitMQ publisher to enable multi-process workers and the `action` round-trip.
-- See [`store/postgres`](../store/postgres) for the Postgres store implementation and SQL migrations.
+- See [`store/postgres`](https://github.com/Bugs5382/go-saga-orchestration/tree/main/store/postgres) for the Postgres store implementation and SQL migrations.
 
 ---
 

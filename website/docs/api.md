@@ -1,6 +1,6 @@
 # REST API Guide
 
-This is the narrative companion to [`api/openapi.yaml`](../api/openapi.yaml). It
+This is the narrative companion to [`api/openapi.yaml`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/api/openapi.yaml). It
 describes how to drive the go-saga-orchestration engine over HTTP: the base URL and
 ports, the saga lifecycle, the live stream format, the error conventions, and a
 runnable `curl` example per endpoint group.
