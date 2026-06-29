@@ -161,14 +161,14 @@ func (c *Coordinator) Advance(ctx context.Context, runIDStr string) error {
 			enabled, err := c.licensing.IsFeatureEnabled(ctx, run.TenantID, feature, overrides)
 			if err != nil {
 				_ = c.store.AppendEvent(ctx, domain.NewEvent(run.ID, step.ID, 0, domain.EventLicenseGateRejected, "engine"))
-				_ = c.store.UpdateRunState(ctx, run.ID, domain.RunStateFailed, step.ID)
+				_ = c.store.MarkRunFailed(ctx, run.ID, step.ID, fmt.Sprintf("license check for feature %q: %v", feature, err))
 				return fmt.Errorf("license check for step %q (feature %q): %w", step.ID, feature, err)
 			}
 			if !enabled {
 				evt := domain.NewEvent(run.ID, step.ID, 0, domain.EventLicenseGateRejected, "engine")
 				evt.Metadata = map[string]any{"group": group, "feature": feature}
 				_ = c.store.AppendEvent(ctx, evt)
-				_ = c.store.UpdateRunState(ctx, run.ID, domain.RunStateFailed, step.ID)
+				_ = c.store.MarkRunFailed(ctx, run.ID, step.ID, fmt.Sprintf("license_gate: feature %q not enabled for tenant", feature))
 				return fmt.Errorf("license_gate: feature %q not enabled for tenant", feature)
 			}
 		}
@@ -204,7 +204,9 @@ func (c *Coordinator) Advance(ctx context.Context, runIDStr string) error {
 			// No try_catch frame: record the failure, roll back completed steps, then fail.
 			_ = c.store.AppendEvent(ctx, domain.NewEvent(run.ID, step.ID, 0, domain.EventStepFailed, "engine"))
 			c.compensate(ctx, run, def, step)
-			_ = c.store.UpdateRunState(ctx, run.ID, domain.RunStateFailed, step.ID)
+			// Persist the failing step's error so the failed run is
+			// self-describing (issue #80), not just state=failed.
+			_ = c.store.MarkRunFailed(ctx, run.ID, step.ID, fmt.Sprintf("step %q (%s): %v", step.ID, step.Type, err))
 			c.checkParentJoin(ctx, run)
 			return fmt.Errorf("verb %s: %w", step.Type, err)
 		}

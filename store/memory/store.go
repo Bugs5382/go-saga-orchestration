@@ -150,6 +150,81 @@ func (s *Store) UpdateRunState(_ context.Context, id uuid.UUID, state domain.Run
 	return nil
 }
 
+// Cancel terminates an in-flight run: terminal cancelled + terminal_at,
+// reason in last_error, open user tasks closed, await markers / wakeup
+// cleared. Idempotent — no-op (and no event) once the run is terminal.
+// See issue #80.
+func (s *Store) Cancel(ctx context.Context, runID uuid.UUID, reason string) error {
+	s.mu.Lock()
+	r, ok := s.runs[runID]
+	if !ok {
+		s.mu.Unlock()
+		return store.ErrNotFound{Entity: "saga_run", ID: runID.String()}
+	}
+	if r.State.IsTerminal() {
+		s.mu.Unlock()
+		return nil // idempotent
+	}
+	now := time.Now().UTC()
+	r.State = domain.RunStateCancelled
+	r.TerminalAt = &now
+	r.LastEventAt = now
+	if reason != "" {
+		reasonCopy := reason
+		r.LastError = &reasonCopy
+	}
+	// Clear await markers + wakeup so a stray Advance cannot resurrect it.
+	r.WakeupAt = nil
+	r.AwaitedSignal = nil
+	r.AwaitedEventTopic = nil
+	r.AwaitedEventHeaders = nil
+	r.AwaitedActionDispatch = nil
+	s.runs[runID] = r
+	// Close the run's open user tasks so none linger pending.
+	for id, t := range s.userTasks {
+		if t.RunID == runID && t.SubmittedAt == nil {
+			t.SubmittedAt = &now
+			t.SubmittedBy = "system:run-cancelled"
+			s.userTasks[id] = t
+		}
+	}
+	currentStep := r.CurrentStep
+	s.mu.Unlock()
+	// Audit event after releasing the lock (AppendEvent takes its own lock).
+	evt := domain.NewEvent(runID, currentStep, 0, domain.EventRunCancelled, "engine")
+	if reason != "" {
+		evt.Metadata = map[string]any{"reason": reason}
+	}
+	_ = s.AppendEvent(ctx, evt)
+	return nil
+}
+
+// MarkRunFailed transitions a run to terminal failed, stamps terminal_at,
+// and persists lastError on the run. Idempotent on terminal runs. See
+// issue #80.
+func (s *Store) MarkRunFailed(_ context.Context, runID uuid.UUID, currentStep, lastError string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.runs[runID]
+	if !ok {
+		return store.ErrNotFound{Entity: "saga_run", ID: runID.String()}
+	}
+	if r.State.IsTerminal() {
+		return nil // idempotent
+	}
+	now := time.Now().UTC()
+	r.State = domain.RunStateFailed
+	r.CurrentStep = currentStep
+	r.TerminalAt = &now
+	r.LastEventAt = now
+	if lastError != "" {
+		errCopy := lastError
+		r.LastError = &errCopy
+	}
+	s.runs[runID] = r
+	return nil
+}
+
 // AppendEvent appends evt to the event list for evt.RunID.
 func (s *Store) AppendEvent(_ context.Context, evt domain.SagaRunEvent) error {
 	s.mu.Lock()
@@ -708,6 +783,13 @@ func (s *Store) FailAction(ctx context.Context, runID uuid.UUID, attempt int, co
 	}
 	r.AwaitedActionDispatch = nil
 	r.State = domain.RunStateFailed
+	now := time.Now().UTC()
+	r.TerminalAt = &now
+	r.LastEventAt = now
+	if message != "" {
+		msgCopy := message
+		r.LastError = &msgCopy
+	}
 	s.runs[runID] = r
 	s.mu.Unlock()
 	// Append audit event AFTER releasing the lock (AppendEvent takes its own lock).

@@ -27,6 +27,9 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 import (
 	"context"
+	"fmt"
+
+	"github.com/google/uuid"
 
 	"github.com/Bugs5382/go-saga-orchestration/clock"
 	"github.com/Bugs5382/go-saga-orchestration/domain"
@@ -99,4 +102,33 @@ func (c *Coordinator) RegisterVerb(stepType domain.StepType, handler verbs.Handl
 // terminate a run outside the normal Advance flow.
 func (c *Coordinator) CheckParentJoin(ctx context.Context, run domain.SagaRun) {
 	c.checkParentJoin(ctx, run)
+}
+
+// Cancel terminates an in-flight run from outside the run — the run-level
+// counterpart to the in-step cancel verb. An external caller (e.g. an
+// approval policy withdrawing or re-submitting while a run is paused at a
+// manual_approval) uses this to abort the prior run so its pending user
+// tasks leave the approver's inbox and a fresh run can start, instead of
+// reaching around the API into the store.
+//
+// The store transition is atomic: terminal cancelled + terminal_at, reason
+// recorded in last_error, open user tasks closed, awaited signal/event and
+// pending wakeup cleared. Idempotent — a no-op when the run is already
+// terminal. If the cancelled run is a child, its parent's join is
+// re-evaluated so the parent is not left waiting. See issue #80.
+func (c *Coordinator) Cancel(ctx context.Context, runID uuid.UUID, reason string) error {
+	run, err := c.store.GetRun(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("cancel run %s: %w", runID, err)
+	}
+	if run.State.IsTerminal() {
+		return nil // idempotent — nothing to cancel
+	}
+	if err := c.store.Cancel(ctx, runID, reason); err != nil {
+		return fmt.Errorf("cancel run %s: %w", runID, err)
+	}
+	if run.ParentRunID != nil {
+		c.checkParentJoin(ctx, run)
+	}
+	return nil
 }

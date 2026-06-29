@@ -80,6 +80,11 @@ type SagaRun struct {
 	FeatureOverrides      map[string]bool   `json:"feature_overrides,omitempty"`
 	AwaitedActionDispatch *string           `json:"awaited_action_dispatch,omitempty"`
 	CurrentAttempt        int               `json:"current_attempt,omitempty"`
+	// LastError records why a run reached a terminal failed/cancelled
+	// state — the failing step's error message, or the cancel reason — so a
+	// run is self-describing without diffing its event log. nil while the
+	// run is non-terminal or terminated cleanly (succeeded). See issue #80.
+	LastError *string `json:"last_error,omitempty"`
 }
 
 // TryCatchFrame is one entry in a saga's try_catch stack. When a step

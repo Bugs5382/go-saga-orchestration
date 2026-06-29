@@ -175,6 +175,27 @@ Key option notes:
 
 ---
 
+## ⛔ Cancelling a run
+
+To abort an in-flight run from outside it — for example, an approval policy that re-submits or withdraws while a run is paused at a `manual_approval` — call `Cancel`:
+
+```go
+err := sc.Cancel(ctx, runID, "approval withdrawn")
+```
+
+This transitions the run to terminal `cancelled`, closes its open user tasks (so none linger `pending` in an approver's inbox), and clears any awaited signal/event or pending wakeup so a stray advance can't resurrect it. `reason` is recorded on the run's `last_error`. `Cancel` is idempotent — a no-op once the run is already terminal.
+
+A run that ends in `failed` likewise records the failing step's error on `last_error`, so a terminal run is self-describing without diffing its event log:
+
+```go
+run, _ := sc.Get(ctx, runID)
+if run.State == domain.RunStateFailed {
+    log.Warn("run failed", "run", runID, "err", *run.LastError)
+}
+```
+
+---
+
 ## ♻️ Lifecycle
 
 When your application shuts down, call `Shutdown` to drain in-flight background advances:

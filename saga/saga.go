@@ -192,6 +192,17 @@ func (s *Saga) Get(ctx context.Context, runID uuid.UUID) (domain.SagaRun, error)
 	return s.store.GetRun(ctx, runID)
 }
 
+// Cancel terminates an in-flight run from outside the run — e.g. an approval
+// policy withdrawing or re-submitting while a run is paused at a
+// manual_approval. The run transitions to terminal cancelled, its open user
+// tasks are closed (so none linger pending), and any awaited signal/event or
+// pending wakeup is cleared so a stray advance cannot resurrect it. reason is
+// recorded on the run's last_error. Idempotent: a no-op when the run is
+// already terminal. See issue #80.
+func (s *Saga) Cancel(ctx context.Context, runID uuid.UUID, reason string) error {
+	return s.coord.Cancel(ctx, runID, reason)
+}
+
 // Signal delivers an external signal to a run. If the run was paused awaiting
 // exactly this signal name, it is consumed and the run advances.
 func (s *Saga) Signal(ctx context.Context, runID uuid.UUID, name string, payload map[string]any) error {

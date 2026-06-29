@@ -69,6 +69,20 @@ type Store interface {
 	CreateRun(ctx context.Context, run domain.SagaRun) error
 	GetRun(ctx context.Context, id uuid.UUID) (domain.SagaRun, error)
 	UpdateRunState(ctx context.Context, id uuid.UUID, state domain.RunState, currentStep string) error
+	// Cancel terminates an in-flight run from outside the run (e.g. an
+	// approval policy withdrawing a paused manual_approval). It atomically:
+	// transitions the run to the terminal "cancelled" state and stamps
+	// terminal_at; records reason in last_error; closes the run's open user
+	// tasks (so none linger pending in an approver's inbox); and clears any
+	// awaited signal / event / pending wakeup so a stray Advance cannot
+	// resurrect it. Idempotent: a no-op (returns nil, emits no event) when
+	// the run is already terminal. See issue #80.
+	Cancel(ctx context.Context, runID uuid.UUID, reason string) error
+	// MarkRunFailed transitions a run to the terminal "failed" state,
+	// stamps terminal_at, and persists the failing step's error in
+	// last_error so a failed run is self-describing. Idempotent: a no-op
+	// when the run is already terminal. See issue #80.
+	MarkRunFailed(ctx context.Context, runID uuid.UUID, currentStep, lastError string) error
 	// ListRuns returns saga runs matching the optional filter. Sorted by
 	// started_at DESC (newest first). Limit + Offset are for pagination;
 	// caller must validate (zero Limit → 50 default; hard max 500 enforced

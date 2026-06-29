@@ -77,17 +77,18 @@ func (s *Store) GetRun(ctx context.Context, id uuid.UUID) (domain.SagaRun, error
 		inputs, vars  []byte
 		overridesJSON []byte
 		terminalAt    *time.Time
+		lastErr       *string
 	)
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, workflow_id, definition_id, tenant_id, state, COALESCE(current_step, '') AS current_step,
 		       inputs, variables, started_at, last_event_at, terminal_at,
 		       requires_manual_review, trigger_id, parent_run_id, dry_run,
-		       feature_overrides
+		       feature_overrides, last_error
 		FROM runtime.saga_runs WHERE id = $1`, id).Scan(
 		&run.ID, &run.WorkflowID, &run.DefinitionID, &run.TenantID, &run.State, &run.CurrentStep,
 		&inputs, &vars, &run.StartedAt, &run.LastEventAt, &terminalAt,
 		&run.RequiresManualReview, &run.TriggerID, &run.ParentRunID, &run.DryRun,
-		&overridesJSON,
+		&overridesJSON, &lastErr,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.SagaRun{}, store.ErrNotFound{Entity: "saga_run", ID: id.String()}
@@ -96,6 +97,7 @@ func (s *Store) GetRun(ctx context.Context, id uuid.UUID) (domain.SagaRun, error
 		return domain.SagaRun{}, err
 	}
 	run.TerminalAt = terminalAt
+	run.LastError = lastErr
 	if err := json.Unmarshal(inputs, &run.Inputs); err != nil {
 		return domain.SagaRun{}, err
 	}
@@ -122,6 +124,104 @@ func (s *Store) UpdateRunState(ctx context.Context, id uuid.UUID, state domain.R
 		       terminal_at = CASE WHEN $4 THEN now() ELSE terminal_at END
 		 WHERE id = $1`, id, state, currentStep, terminal)
 	return err
+}
+
+// Cancel terminates an in-flight run: terminal cancelled + terminal_at,
+// reason in last_error, open user tasks closed, await markers / wakeup
+// cleared — all in one transaction. Idempotent: when the run is already
+// terminal the guard updates no row, so user tasks are untouched and no
+// event is emitted. See issue #80.
+func (s *Store) Cancel(ctx context.Context, runID uuid.UUID, reason string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("cancel: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	var stepID *string
+	ct, err := tx.Exec(ctx, `
+		UPDATE runtime.saga_runs
+		   SET state = 'cancelled',
+		       terminal_at = now(),
+		       last_event_at = now(),
+		       last_error = COALESCE(NULLIF($2, ''), last_error),
+		       wakeup_at = NULL,
+		       awaited_signal = NULL,
+		       awaited_event_topic = NULL,
+		       awaited_event_headers = NULL,
+		       awaited_action_dispatch = NULL
+		 WHERE id = $1
+		   AND state NOT IN ('succeeded', 'failed', 'cancelled')`, runID, reason)
+	if err != nil {
+		return fmt.Errorf("cancel: update run: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		// Either the run does not exist or it is already terminal. Disambiguate
+		// so callers still get ErrNotFound for a genuinely missing run.
+		var exists bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM runtime.saga_runs WHERE id=$1)`, runID).Scan(&exists); err != nil {
+			return fmt.Errorf("cancel: existence check: %w", err)
+		}
+		if !exists {
+			return store.ErrNotFound{Entity: "saga_run", ID: runID.String()}
+		}
+		return nil // already terminal — idempotent no-op
+	}
+	// Resolve the current step for the audit event.
+	if err := tx.QueryRow(ctx, `SELECT current_step FROM runtime.saga_runs WHERE id=$1`, runID).Scan(&stepID); err != nil {
+		return fmt.Errorf("cancel: read step: %w", err)
+	}
+	// Close the run's open user tasks so none linger pending.
+	if _, err := tx.Exec(ctx, `
+		UPDATE runtime.saga_user_tasks
+		   SET submitted_at = now(),
+		       submitted_by = 'system:run-cancelled'
+		 WHERE run_id = $1 AND submitted_at IS NULL`, runID); err != nil {
+		return fmt.Errorf("cancel: close user tasks: %w", err)
+	}
+	step := ""
+	if stepID != nil {
+		step = *stepID
+	}
+	metaJSON, err := json.Marshal(map[string]any{"reason": reason})
+	if err != nil {
+		return fmt.Errorf("cancel: marshal metadata: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO audit.saga_run_events (id, run_id, step_id, attempt, event_type, actor, metadata, recorded_at)
+		VALUES (gen_random_uuid(), $1, $2, 0, 'run.cancelled', 'engine', $3::jsonb, now())`,
+		runID, step, metaJSON); err != nil {
+		return fmt.Errorf("cancel: append event: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
+// MarkRunFailed transitions a run to terminal failed, stamps terminal_at,
+// and persists lastError on the run. Idempotent: the terminal guard means
+// an already-terminal run is left untouched. See issue #80.
+func (s *Store) MarkRunFailed(ctx context.Context, runID uuid.UUID, currentStep, lastError string) error {
+	ct, err := s.pool.Exec(ctx, `
+		UPDATE runtime.saga_runs
+		   SET state = 'failed',
+		       current_step = NULLIF($2, ''),
+		       terminal_at = now(),
+		       last_event_at = now(),
+		       last_error = COALESCE(NULLIF($3, ''), last_error)
+		 WHERE id = $1
+		   AND state NOT IN ('succeeded', 'failed', 'cancelled')`, runID, currentStep, lastError)
+	if err != nil {
+		return fmt.Errorf("mark run failed: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		var exists bool
+		if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM runtime.saga_runs WHERE id=$1)`, runID).Scan(&exists); err != nil {
+			return fmt.Errorf("mark run failed: existence check: %w", err)
+		}
+		if !exists {
+			return store.ErrNotFound{Entity: "saga_run", ID: runID.String()}
+		}
+	}
+	return nil
 }
 
 // SetPausedWithWakeup marks the run paused and records wakeup_at.
@@ -833,8 +933,9 @@ func (s *Store) FailAction(ctx context.Context, runID uuid.UUID, attempt int, co
 		   SET state = 'failed',
 		       awaited_action_dispatch = NULL,
 		       terminal_at = now(),
-		       last_event_at = now()
-		 WHERE id = $1`, runID); err != nil {
+		       last_event_at = now(),
+		       last_error = NULLIF($2, '')
+		 WHERE id = $1`, runID, message); err != nil {
 		return fmt.Errorf("fail action: update run: %w", err)
 	}
 
