@@ -35,6 +35,10 @@ const config: Config = {
   ],
 
   themeConfig: {
+    colorMode: {
+      defaultMode: 'dark',
+      respectPrefersColorScheme: false,
+    },
     navbar: {
       title: 'go-saga-orchestration',
       items: [
