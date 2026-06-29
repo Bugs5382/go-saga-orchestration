@@ -109,12 +109,11 @@
 
 /* Center the three footer columns as a group instead of stretching them. */
 .footer__links {
-  justify-content: center;
+  justify-content: space-evenly;
 }
 .footer__col {
   flex: 0 0 14rem;
   max-width: 14rem;
-  padding: 0 1rem;
   text-align: center;
 }
 
