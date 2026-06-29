@@ -177,8 +177,11 @@ A `SagaTrigger` binds an external event to a workflow. v1 supports one `TriggerT
 Per-trigger failures are logged and skipped; the first store/publish error is returned. CRUD is exposed via `/api/v1/triggers`; some first-party triggers are seeded by migrations.
 
 ### Cron triggers (`domain/trigger.go`, `engine/cron_dispatcher.go`)
-A cron trigger is a `SagaTrigger` with `trigger_type: cron`. Its `config` map carries:
-- `schedule` (required) — a standard five-field cron expression (`* * * * *`) or a `@`-descriptor (`@hourly`, `@daily`, etc.). Granularity is one minute; sub-minute cadences are not supported (tracked separately).
+A cron trigger is a `SagaTrigger` with `trigger_type: cron`. Its `config` map carries exactly one of:
+- `schedule` — a standard five-field cron expression (`* * * * *`) or a `@`-descriptor (`@hourly`, `@daily`, etc.). Granularity is one minute.
+- `interval` — a Go duration string (e.g. `"30s"`, `"5m"`) enabling sub-minute cadences. `next_fire_at` is advanced by the interval on each claim.
+
+Exactly one of `schedule` or `interval` must be present; supplying both or neither is rejected at create time with HTTP 400. The config also accepts:
 - `entrypoint` (optional) — a named entry point in the target workflow definition; resolves the same way as `config.entrypoint` on event triggers.
 - `input` (optional) — a JSON-compatible map injected as the run's start inputs.
 
