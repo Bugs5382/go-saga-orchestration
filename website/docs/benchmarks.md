@@ -1,4 +1,4 @@
-# Benchmarks — coordinator hot path
+# Benchmarks
 
 Benchmarks for the saga coordinator's hot path: step advancement
 (`Coordinator.Advance`) and verb dispatch. They exist to (1) establish a

@@ -1,4 +1,4 @@
-# Saga Orchestration Engine — REST API Guide
+# REST API Guide
 
 This is the narrative companion to [`api/openapi.yaml`](../api/openapi.yaml). It
 describes how to drive the go-saga-orchestration engine over HTTP: the base URL and

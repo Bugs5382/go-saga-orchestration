@@ -5,7 +5,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 const config: Config = {
   title: 'go-saga-orchestration',
   tagline: 'A standalone, solution-agnostic saga orchestrator + CEL rule evaluator',
-  favicon: 'img/favicon.ico',
+  favicon: 'img/favicon.svg',
 
   url: 'https://bugs5382.github.io',
   baseUrl: '/go-saga-orchestration/',
@@ -55,21 +55,28 @@ const config: Config = {
       style: 'dark',
       links: [
         {
-          title: 'Docs',
+          title: '📚 Docs',
           items: [
             {label: 'Getting started', to: '/docs/getting-started'},
             {label: 'Architecture', to: '/docs/architecture'},
           ],
         },
         {
-          title: 'More',
+          title: '🔌 Reference',
+          items: [
+            {label: 'API reference', to: '/docs/reference/api'},
+            {label: 'gRPC workers', to: '/docs/grpc'},
+          ],
+        },
+        {
+          title: '🔗 More',
           items: [
             {label: 'GitHub', href: 'https://github.com/Bugs5382/go-saga-orchestration'},
             {label: 'Changelog', to: '/changelog'},
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} Shane.`,
+      copyright: `🐰 Copyright © ${new Date().getFullYear()} Shane — the rabbit hole`,
     },
     prism: {
       theme: prismThemes.github,

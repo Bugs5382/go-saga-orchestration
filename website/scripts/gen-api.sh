@@ -27,4 +27,14 @@ gomarkdoc --output "$OUT/{{.Dir}}.md" \
   ./store ./store/memory ./store/postgres ./store/redis \
   ./clock ./secrets ./api
 
+# Strip gomarkdoc's per-package "## Index" block (a huge symbol list at the top
+# of each page) — Docusaurus's own right-side TOC already provides navigation.
+while IFS= read -r f; do
+  awk '
+    /^## Index$/ { skip=1; next }
+    skip && /^## / { skip=0 }
+    !skip { print }
+  ' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+done < <(find "$OUT" -name '*.md')
+
 echo "generated API reference -> $OUT"

@@ -1,4 +1,4 @@
-# go-saga-orchestration — Architecture & Concepts
+# Architecture & Concepts
 
 Module: `github.com/Bugs5382/go-saga-orchestration`
 
