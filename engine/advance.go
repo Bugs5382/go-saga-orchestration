@@ -172,7 +172,7 @@ func (c *Coordinator) Advance(ctx context.Context, runIDStr string) error {
 				return fmt.Errorf("license_gate: feature %q not enabled for tenant", feature)
 			}
 		}
-		result, err := entry.Handler.Execute(ctx, run, step)
+		result, err := c.executeStep(ctx, run, step, entry.Handler)
 		if errors.Is(err, verbs.ErrSagaPaused) {
 			_ = c.store.AppendEvent(ctx, domain.NewEvent(run.ID, step.ID, 0, domain.EventStepPaused, "engine"))
 			return nil // ACK queue msg; external/timer wakeup will republish saga.advance
@@ -201,8 +201,9 @@ func (c *Coordinator) Advance(ctx context.Context, runIDStr string) error {
 				_ = c.store.UpdateRunState(ctx, run.ID, domain.RunStateRunning, frame.CatchStep)
 				continue // re-loop with the catch step
 			}
-			// No try_catch frame: transition run to failed.
+			// No try_catch frame: record the failure, roll back completed steps, then fail.
 			_ = c.store.AppendEvent(ctx, domain.NewEvent(run.ID, step.ID, 0, domain.EventStepFailed, "engine"))
+			c.compensate(ctx, run, def, step)
 			_ = c.store.UpdateRunState(ctx, run.ID, domain.RunStateFailed, step.ID)
 			c.checkParentJoin(ctx, run)
 			return fmt.Errorf("verb %s: %w", step.Type, err)

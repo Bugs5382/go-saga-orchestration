@@ -91,8 +91,9 @@ type assertion in the verb succeeds.
 
 ## Asserting failure and compensation
 
-A handler that returns an error fails the step. With no `try`/`catch` or
-compensation wired, the run lands in `RunStateFailed` — assert that directly:
+A handler that returns an error fails the step. With no `Step.Retry`,
+`try`/`catch`, or `Step.Compensation` wired, the run lands in `RunStateFailed` —
+assert that directly:
 
 ```go
 sc.RegisterVerb("charge_card", "common",
@@ -107,11 +108,20 @@ if run.State != domain.RunStateFailed {
 }
 ```
 
-To test the **happy path through compensation**, build a workflow with a
-`try`/`catch` branch (see the [verb reference](./verbs.md)) and assert the run
-reaches `RunStateSucceeded` after the catch branch runs, or
-`RunStateCompensating`/`RunStateFailed` mid-flight if you drive it with a fake
-clock.
+To test **retry**, give a step a `Step.Retry` policy and a handler that fails a
+fixed number of times before succeeding; drive the backoff waits with a fake
+clock and assert the handler ran the expected number of times and the run
+reached `RunStateSucceeded` (retry-then-success) or `RunStateFailed` (exhausted
+attempts).
+
+To test **compensation**, give the completed steps a `Step.Compensation` action
+and fail a later step with no catching `try_catch` frame. The engine transitions
+the run through `RunStateCompensating`, dispatches each completed compensable
+step's compensation action in reverse order, then settles to `RunStateFailed`.
+Assert the reverse-order dispatch and the terminal `RunStateFailed`. To assert
+the **caught happy path** instead, wrap the risky steps in a `try`/`catch` branch
+(see the [verb reference](./verbs.md)) and assert the run reaches
+`RunStateSucceeded` after the catch branch runs.
 
 ---
 

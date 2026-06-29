@@ -96,5 +96,17 @@ region; the protected step's `Next` points past it. See the
 [`try_catch` verb](verbs#try_catch) for the nesting rules, and [Testing](testing)
 for asserting both the caught and uncaught (`failed`) paths.
 
-> The `Step.Retry` and `Step.Compensation` fields exist on the schema but are not
-> yet executed by the engine — `try_catch` is the supported recovery mechanism today.
+### Step-level retry and compensation
+
+`try_catch` is one of three recovery mechanisms, and they compose:
+
+- **`Step.Retry`** — set a `RetryPolicy` on a step and the engine re-runs it on
+  error, up to `MaxAttempts`, with exponential backoff (`InitialBackoffMS`,
+  `MaxBackoffMS`, `Multiplier`, optional `Jitter`). Retries are exhausted before
+  a `try_catch` frame catches the error or the run fails.
+- **`Step.Compensation`** — give a completed step a `Compensation` action and,
+  when the run fails with no catching `try_catch` frame, the engine rolls back:
+  it transitions the run to `RunStateCompensating`, then dispatches each
+  already-completed compensable step's compensation action in **reverse order**
+  before the run settles to `RunStateFailed`. A completed step with no
+  `Compensation` is skipped.
