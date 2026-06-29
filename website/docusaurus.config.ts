@@ -17,6 +17,10 @@ const config: Config = {
 
   i18n: {defaultLocale: 'en', locales: ['en']},
 
+  // Render ```mermaid fenced blocks as diagrams (deployment topology, etc.).
+  markdown: {mermaid: true},
+  themes: ['@docusaurus/theme-mermaid'],
+
   presets: [
     [
       'classic',

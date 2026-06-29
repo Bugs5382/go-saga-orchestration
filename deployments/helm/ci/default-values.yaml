@@ -1,4 +1,5 @@
-# Lint/render fixture: exercises the postgres store, connection secret, and ingress paths.
+# Lint/render fixture: exercises the postgres store, connection secret, ingress,
+# and the dedicated cron pod paths.
 store:
   type: postgres
 connectionSecret: gosaga-conn
@@ -6,3 +7,5 @@ ingress:
   enabled: true
   className: nginx
   host: saga.example.com
+cron:
+  dedicated: true

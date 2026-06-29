@@ -125,18 +125,28 @@ func main() {
 		}
 	}()
 
-	cronDispatcher := &engine.CronDispatcher{
-		S:         st,
-		Publisher: pub,
-		Clock:     clock.SystemClock{},
-		Tick:      time.Second,
-		Licensing: lr,
-	}
-	go func() {
-		if err := cronDispatcher.Run(ctx); err != nil && err != context.Canceled {
-			log.Error().Err(err).Msg("cron dispatcher stopped")
+	// The cron dispatcher loop is gated by WORKFLOW_CRON_DISPATCHER (issue #69).
+	// Firing is exactly-once across pods via the ClaimCronFire CAS, so this gate
+	// is for operational isolation: run the dispatcher on a single dedicated
+	// engine pod and disable it on the saga-processing replicas. The default is
+	// on, preserving the single-deployment behavior.
+	if cfg.Engine.EnableCronDispatcher {
+		cronDispatcher := &engine.CronDispatcher{
+			S:         st,
+			Publisher: pub,
+			Clock:     clock.SystemClock{},
+			Tick:      time.Second,
+			Licensing: lr,
 		}
-	}()
+		go func() {
+			if err := cronDispatcher.Run(ctx); err != nil && err != context.Canceled {
+				log.Error().Err(err).Msg("cron dispatcher stopped")
+			}
+		}()
+		log.Info().Msg("cron dispatcher enabled")
+	} else {
+		log.Info().Msg("cron dispatcher disabled (WORKFLOW_CRON_DISPATCHER=false)")
+	}
 
 	dispatcher := &engine.TriggerDispatcher{S: st, Publisher: pub}
 	sub := &engine.EventSubscriber{S: st, Publisher: pub, Dispatcher: dispatcher}

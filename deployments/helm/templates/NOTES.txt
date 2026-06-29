@@ -4,6 +4,14 @@ API (HTTP):     {{ include "gosaga.fullname" . }}-api:{{ .Values.api.port }}
 Engine (gRPC):  {{ include "gosaga.fullname" . }}-engine:{{ .Values.engine.grpcPort }}
 Store backend:  {{ .Values.store.type }}
 
+{{ if .Values.cron.dedicated -}}
+Cron topology: a dedicated single-writer cron pod ({{ include "gosaga.fullname" . }}-cron)
+runs the cron dispatcher; the main engine pods run with it disabled.
+{{ else -}}
+Cron topology: the cron dispatcher runs on every engine pod (firing is exactly-once
+across pods via the ClaimCronFire CAS). Set cron.dedicated=true to isolate it onto a
+single dedicated cron pod instead.
+{{ end }}
 Both services require a reachable RabbitMQ and a store. Provide them via a Secret
 referenced by `connectionSecret` (keys: rabbitmq-url, and database-dsn or redis-url):
 

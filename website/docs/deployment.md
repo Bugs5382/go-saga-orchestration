@@ -51,6 +51,56 @@ helm install go-saga \
 | `api.replicas` / `engine.replicas` | `1` | Replica counts (both stateless) |
 | `api.port` | `8080` | API HTTP port (`WORKFLOW_API_PORT`) |
 | `engine.grpcPort` | `9090` | Engine gRPC port (`WORKFLOW_ENGINE_GRPC_PORT`) |
+| `cron.dedicated` | `false` | Run the cron dispatcher on a dedicated pod and off the main engines (see below) |
+| `cron.replicas` | `1` | Replicas for the dedicated cron pod (only when `cron.dedicated`) |
 | `ingress.enabled` | `false` | Expose the api via Ingress |
 
 See `deployments/helm/values.yaml` for the full set, including probes, resources, and security context.
+
+## Cron dispatcher topology
+
+The engine's cron dispatcher polls for due cron triggers and fires them. Firing
+is **exactly-once across every engine pod** — each fire is claimed with a
+compare-and-swap on the trigger's `next_fire_at` (`ClaimCronFire`), so even if
+many pods run the loop at once, only one wins each window. Running cron on every
+engine pod is therefore always safe.
+
+A single Helm switch, `cron.dedicated`, picks the topology:
+
+- **`cron.dedicated: false` (default)** — no extra pod. Every main engine pod
+  runs the cron dispatcher (`WORKFLOW_CRON_DISPATCHER=true`); the CAS keeps firing
+  single-shot. Simplest single-deployment setup.
+- **`cron.dedicated: true`** — one dedicated single-replica cron pod runs the
+  dispatcher, and it is turned **off** on every (scaled) main engine pod. This
+  gives predictable scheduling, resource isolation, and one obvious cron writer
+  while the main engines scale out purely for saga processing. The cron pod
+  reuses the engine image, ConfigMap, and connection Secret. Enabling the
+  dedicated pod is the only switch — there is no separate per-engine cron flag;
+  the chart derives `WORKFLOW_CRON_DISPATCHER` for both deployments from it.
+
+```mermaid
+flowchart TB
+  client([Clients]) --> api
+
+  subgraph k8s["Kubernetes (cron.dedicated: true)"]
+    api["api Deployment\nN replicas\nHTTP :8080"]
+    engine["engine Deployment\nN replicas\ncron OFF\n(saga processing)"]
+    cron["cron Deployment\n1 replica\ncron ON\n(WORKFLOW_CRON_DISPATCHER=true)"]
+  end
+
+  store[("Store\n(Postgres / Redis)")]
+  rmq[["RabbitMQ"]]
+
+  api --> store
+  api --> rmq
+  engine --> store
+  engine --> rmq
+  cron --> store
+  cron --> rmq
+
+  cron -. "fires cron triggers\n(single writer)" .-> rmq
+```
+
+Even with `cron.dedicated: true` you may raise `cron.replicas` above 1 for
+availability — the `ClaimCronFire` CAS still guarantees each window fires once,
+so duplicate cron pods do not double-fire.
