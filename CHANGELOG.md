@@ -10,6 +10,10 @@
 - feat(engine): cron-scheduled workflow triggers @Bugs5382 (#68)
 - feat(deploy): publish container images and a Helm chart @Bugs5382 (#65)
 
+#### 📄 Documentation
+
+- docs: publish a versioned Docusaurus site to GitHub Pages @Bugs5382 (#74)
+
 ### Extra
 
 **Full Changelog**: https://github.com/Bugs5382/go-saga-orchestration/compare/v0.2.2...v0.3.0
