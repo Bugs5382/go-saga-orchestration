@@ -28,6 +28,7 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 import (
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -53,6 +54,14 @@ type APIConfig struct {
 // EngineConfig holds knobs for the engine binary (cmd/engine).
 type EngineConfig struct {
 	GRPCPort string
+
+	// EnableCronDispatcher gates whether this engine process starts the cron
+	// dispatcher loop (env WORKFLOW_CRON_DISPATCHER). Cron firing is already
+	// exactly-once across pods via the ClaimCronFire CAS, so this flag is about
+	// operational isolation: run the dispatcher on a single dedicated engine
+	// pod and disable it on the saga-processing replicas. Defaults to true to
+	// preserve the single-deployment behavior where every engine pod dispatches.
+	EnableCronDispatcher bool
 }
 
 // ServerConfig holds shared HTTP / lifecycle knobs.
@@ -68,7 +77,8 @@ func Load() Config {
 			Port: getEnv("WORKFLOW_API_PORT", "8080"),
 		},
 		Engine: EngineConfig{
-			GRPCPort: getEnv("WORKFLOW_ENGINE_GRPC_PORT", "9090"),
+			GRPCPort:             getEnv("WORKFLOW_ENGINE_GRPC_PORT", "9090"),
+			EnableCronDispatcher: getEnvBool("WORKFLOW_CRON_DISPATCHER", true),
 		},
 		Server: ServerConfig{
 			ShutdownTimeout: 15 * time.Second,
@@ -98,4 +108,18 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// getEnvBool parses a boolean env var (strconv.ParseBool: 1/t/true/0/f/false,
+// case-insensitive). An unset or unparseable value yields the fallback.
+func getEnvBool(key string, fallback bool) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return fallback
+	}
+	return b
 }
