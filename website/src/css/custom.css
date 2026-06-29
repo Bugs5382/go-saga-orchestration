@@ -46,6 +46,25 @@
   --docusaurus-highlighted-code-line-bg: rgba(144, 193, 243, 0.16);
 }
 
+/* Version callout (the "next"/unreleased banner) and the version chip use the
+   sky-blue tone on a dark surface — an intentional exception to the
+   header-only sky-blue rule (operator request), and far more legible than the
+   default light-grey chip. */
+.theme-doc-version-banner {
+  --ifm-alert-background-color: #15243b;
+  --ifm-alert-background-color-highlight: rgba(144, 193, 243, 0.12);
+  --ifm-alert-foreground-color: #d7e8fc;
+  --ifm-alert-border-color: #90c1f3;
+}
+.theme-doc-version-banner a {
+  color: #90c1f3;
+}
+.theme-doc-version-badge {
+  background-color: #15243b;
+  border: 1px solid #90c1f3;
+  color: #cfe3fb;
+}
+
 .navbar {
   border-bottom: 1px solid #444444;
 }
