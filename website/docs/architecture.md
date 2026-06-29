@@ -62,7 +62,7 @@ Triggers honor the entry point via `config.entrypoint` in the trigger's config m
 
 ### Runs (`domain/run.go`)
 A `SagaRun` is one executing instance. Key fields:
-- `State` (`RunState`): `pending`, `running`, `paused`, `compensating`, `succeeded`, `failed`, `cancelled`. `IsTerminal()` is true for `succeeded`/`failed`/`cancelled`.
+- `State` (`RunState`): `pending`, `running`, `paused`, `compensating`, `succeeded`, `failed`, `cancelled`. `IsTerminal()` is true for `succeeded`/`failed`/`cancelled`. Runs that reach `failed`/`cancelled` also carry `LastError` — the failing step's error message or the cancel reason. An external caller can terminate a paused/in-flight run with `Coordinator.Cancel(runID, reason)` (or `saga.Cancel` when embedding), which closes its open user tasks and clears its await/wakeup markers.
 - `CurrentStep`: the step id the run is at.
 - `Inputs` (immutable start inputs) and `Variables` (mutable working state that verbs read and write).
 - Pause markers: `WakeupAt`, `AwaitedSignal`, `AwaitedEventTopic`, `AwaitedEventHeaders`, `AwaitedActionDispatch`, `CurrentAttempt`.
@@ -85,7 +85,7 @@ A `SagaRun` is one executing instance. Key fields:
 5. **License gate.** Look up the verb's `LicenseGroup` (with `LicenseGroupForStep` dynamic override), map to a feature flag (`GroupToFeature`), and call `licensing.IsFeatureEnabled`. On rejection: emit `license.gate.rejected`, set state `failed`, return error. (In the engine binary the resolver is `StubAllowAll`, so this never rejects in dev.)
 6. **Execute the verb.** `entry.Handler.Execute(ctx, run, step)` returns `(result map, error)`.
    - If `error == ErrSagaPaused`: emit `step.paused`, return (ACK). The verb has already persisted its pause marker; a timer/signal/event/join wake will republish `saga.advance`.
-   - If another error: **try_catch handling** — `PopTryCatch`; if a frame was popped, write `_error` (`{step_id, message, verb}`) into Variables, emit `step.failed` (actor `engine-caught`), set `CurrentStep` to the frame's `CatchStep`, and continue the loop. Otherwise emit `step.failed`, set state `failed`, run `checkParentJoin`, return error.
+   - If another error: **try_catch handling** — `PopTryCatch`; if a frame was popped, write `_error` (`{step_id, message, verb}`) into Variables, emit `step.failed` (actor `engine-caught`), set `CurrentStep` to the frame's `CatchStep`, and continue the loop. Otherwise emit `step.failed`, set state `failed` via `MarkRunFailed` (which stamps `terminal_at` and persists the failing step's error in the run's `last_error`), run `checkParentJoin`, return error.
    - On success: if `result` is non-empty, merge it into Variables (`UpdateRunVariables` — supports dotted keys for nested writes). Emit `step.succeeded`.
 7. **Pick the next step.** Default is `step.Next`. If `result["branch"]` is a non-empty string and `step.Branches[branch]` exists, follow that branch instead. For `decision`/`while`, a missing branch is an error. A run with no `next` that is not `end` is an error. Set state `running` + new `CurrentStep`; loop.
 

@@ -101,7 +101,11 @@ A saga is one running instance of a workflow definition. The typical lifecycle:
 ```
 
 Optional fields (`terminal_at`, `trigger_id`, `parent_run_id`, `wakeup_at`,
-`feature_overrides`, `dry_run`, etc.) are omitted when empty.
+`feature_overrides`, `dry_run`, etc.) are omitted when empty. On a terminal
+`failed` or `cancelled` run, `last_error` carries the failing step's error
+message (or the cancel reason), so the run is self-describing without
+replaying its event log; pair it with the `has_error` list filter to surface
+failures.
 
 ### Listing runs
 
