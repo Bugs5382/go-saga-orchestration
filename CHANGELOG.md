@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.6.0 - 2026-07-06
+
+### What Changed 👀
+
+#### 🚀 Features
+
+- feat(engine): add join verb to reconvene independently-spawned streams @Bugs5382 (#87)
+
+### Extra
+
+**Full Changelog**: https://github.com/Bugs5382/go-saga-orchestration/compare/v0.5.0...v0.6.0
+
 ## v0.5.0 - 2026-07-06
 
 ### What Changed 👀
