@@ -10,7 +10,12 @@
 
 #### 🐛 Bug Fixes
 
+- fix(website): label the next docs version v0.6.0 @Bugs5382 (#91)
 - fix(website): escape MDX-hazardous chars in the generated changelog page @Bugs5382 (#89)
+
+#### 📄 Documentation
+
+- fix(website): label the next docs version v0.6.0 @Bugs5382 (#91)
 
 ### Extra
 
