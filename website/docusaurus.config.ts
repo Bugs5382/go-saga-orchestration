@@ -30,9 +30,9 @@ const config: Config = {
           editUrl:
             'https://github.com/Bugs5382/go-saga-orchestration/tree/main/website/',
           // The live docs are the unreleased "next" line; released snapshots
-          // (0.5.0 … 0.1.0) live in versioned_docs/. Default to latest stable.
+          // (0.6.0 … 0.1.0) live in versioned_docs/. Default to latest stable.
           versions: {
-            current: {label: 'v0.6.0 (next)', path: 'next', banner: 'unreleased'},
+            current: {label: 'v0.7.0 (next)', path: 'next', banner: 'unreleased'},
           },
         },
         blog: false,
