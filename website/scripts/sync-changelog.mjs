@@ -15,7 +15,18 @@ try {
   body = '# Changelog\n\nNo changelog yet.\n';
 }
 
-const page = `---\ntitle: Changelog\n---\n\n${body}\n`;
+// The page is rendered as MDX, so a changelog entry that contains braces or a
+// less-than (e.g. a PR title like "POST /sagas/{id}/cancel") would be parsed as
+// a JS expression or a JSX tag and fail the build. Escape those to their HTML
+// entities so the text renders literally. Release-drafter output is plain
+// Markdown (headings, lists, bold, [text](url) links, @mentions, #refs, bare
+// URLs), none of which use these characters, so escaping is safe.
+const safeBody = body
+  .replace(/</g, '&lt;')
+  .replace(/\{/g, '&#123;')
+  .replace(/\}/g, '&#125;');
+
+const page = `---\ntitle: Changelog\n---\n\n${safeBody}\n`;
 mkdirSync(pagesDir, {recursive: true});
 writeFileSync(join(pagesDir, 'changelog.md'), page);
 console.log('synced CHANGELOG.md -> src/pages/changelog.md');
