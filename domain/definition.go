@@ -56,6 +56,7 @@ const (
 	StepTypeWaitForSignal  StepType = "wait_for_signal"
 	StepTypeWaitForEvent   StepType = "wait_for_event"
 	StepTypeParallel       StepType = "parallel"
+	StepTypeJoin           StepType = "join"
 	StepTypeForeach        StepType = "foreach"
 	StepTypeWhile          StepType = "while"
 	StepTypeTryCatch       StepType = "try_catch"

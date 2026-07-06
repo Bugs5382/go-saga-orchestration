@@ -78,6 +78,7 @@ func Default(s store.Store, clk clock.Clock, sec secrets.Resolver, pub Publisher
 		domain.StepTypeWaitForEvent:   {WaitForEventVerb{S: s, Clock: clk}, "events_and_signals"},
 		domain.StepTypeEmitSignal:     {EmitSignalVerb{S: s, Publisher: pub}, "events_and_signals"},
 		domain.StepTypeParallel:       {ParallelVerb{S: s, Publisher: pub}, "parallel_control"},
+		domain.StepTypeJoin:           {JoinVerb{S: s}, "parallel_control"},
 		domain.StepTypeForeach:        {ForeachVerb{S: s, Publisher: pub}, "parallel_control"},
 		domain.StepTypeWhile:          {WhileVerb{}, "loops_and_recovery"},
 		domain.StepTypeSwitch:         {SwitchVerb{}, "common"},

@@ -1,0 +1,54 @@
+{
+  "id": "example.join",
+  "version": 1,
+  "name": "Join verb example",
+  "description": "Fires two independent background streams with spawn_saga, does other work, then reconvenes both at a join barrier before finishing.",
+  "start": "spawn_enrichment",
+  "published": true,
+  "steps": [
+    {
+      "id": "spawn_enrichment",
+      "type": "spawn_saga",
+      "inputs": {
+        "workflow_id": "customer_enrichment",
+        "inputs": {
+          "customer_id": "CUST-1001"
+        }
+      },
+      "next": "spawn_risk_scoring"
+    },
+    {
+      "id": "spawn_risk_scoring",
+      "type": "spawn_saga",
+      "inputs": {
+        "workflow_id": "risk_scoring",
+        "inputs": {
+          "customer_id": "CUST-1001"
+        }
+      },
+      "next": "do_local_work"
+    },
+    {
+      "id": "do_local_work",
+      "type": "set_var",
+      "inputs": {
+        "out_var": "stage",
+        "value": "awaiting_streams"
+      },
+      "next": "await_streams"
+    },
+    {
+      "id": "await_streams",
+      "type": "join",
+      "inputs": {
+        "streams": ["spawn_enrichment", "spawn_risk_scoring"],
+        "join_strategy": "all"
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}
