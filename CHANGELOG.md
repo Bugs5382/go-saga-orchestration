@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.6.1 - 2026-07-06
+
+### What Changed 👀
+
+#### 📄 Documentation
+
+- docs(website): snapshot version-0.6.0 and roll next to v0.7.0 @Bugs5382 (#93)
+
+### Extra
+
+**Full Changelog**: https://github.com/Bugs5382/go-saga-orchestration/compare/v0.6.0...v0.6.1
+
 ## v0.6.0 - 2026-07-06
 
 ### What Changed 👀
