@@ -37,11 +37,13 @@ import (
 
 	"github.com/Bugs5382/go-saga-orchestration/api"
 	"github.com/Bugs5382/go-saga-orchestration/clock"
+	"github.com/Bugs5382/go-saga-orchestration/engine"
 	"github.com/Bugs5382/go-saga-orchestration/internal/config"
 	"github.com/Bugs5382/go-saga-orchestration/internal/logging"
 	"github.com/Bugs5382/go-saga-orchestration/internal/mq"
 	"github.com/Bugs5382/go-saga-orchestration/internal/storefactory"
 	"github.com/Bugs5382/go-saga-orchestration/licensing"
+	"github.com/Bugs5382/go-saga-orchestration/secrets"
 	"github.com/Bugs5382/go-saga-orchestration/store/postgres"
 )
 
@@ -49,6 +51,16 @@ var (
 	Version = "dev"
 	GitSHA  = "unknown"
 )
+
+// mqEventEmitter satisfies verbs.EventEmitter by publishing to RabbitMQ so the
+// coordinator's emit_event steps reach subscribed pods.
+type mqEventEmitter struct {
+	pub *mq.Publisher
+}
+
+func (e *mqEventEmitter) EmitEvent(ctx context.Context, topic string, headers map[string]string, payload map[string]any) error {
+	return e.pub.PublishEvent(ctx, topic, headers, payload)
+}
 
 func main() {
 	logging.Init(false)
@@ -88,7 +100,11 @@ func main() {
 	}
 	defer func() { _ = pub.Close() }()
 
-	sagas := api.NewSagaHandler(st, pub)
+	// A coordinator backs the run-level cancel endpoint. It reuses the store
+	// and publisher; Cancel only touches the store and re-evaluates a parent
+	// join, so the action-dispatch opts are not wired here.
+	coord := engine.NewCoordinator(st, pub, clock.SystemClock{}, secrets.NewMemory(map[string]string{}), licensing.StubAllowAll{}, pub, &mqEventEmitter{pub: pub})
+	sagas := api.NewSagaHandler(st, pub).WithCanceller(coord)
 	signals := api.NewSignalHandler(st, pub)
 	userTasks := api.NewUserTaskHandler(st, pub)
 	reg := api.NewRegistryHandler(st)

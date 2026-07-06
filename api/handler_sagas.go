@@ -27,6 +27,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -47,17 +48,32 @@ type AdvancePublisher interface {
 	PublishSagaAdvance(ctx context.Context, runID string) error
 }
 
+// Canceller cancels an in-flight run from outside the run. It is satisfied by
+// *engine.Coordinator; handlers depend on the interface so they can be
+// unit-tested with a fake. See engine.Coordinator.Cancel.
+type Canceller interface {
+	Cancel(ctx context.Context, runID uuid.UUID, reason string) error
+}
+
 // SagaHandler owns the /api/v1/sagas/* routes.
 type SagaHandler struct {
 	store     store.Store
 	pub       AdvancePublisher
 	providers []engine.StartupVariableProvider
+	canceller Canceller
 }
 
 // NewSagaHandler constructs the handler. Optional StartupVariableProviders are
 // invoked at saga start to inject per-tenant "magic" variables.
 func NewSagaHandler(s store.Store, p AdvancePublisher, providers ...engine.StartupVariableProvider) *SagaHandler {
 	return &SagaHandler{store: s, pub: p, providers: providers}
+}
+
+// WithCanceller attaches the Canceller used by the Cancel handler and returns
+// the receiver for chaining. When unset, POST /sagas/{id}/cancel returns 501.
+func (h *SagaHandler) WithCanceller(c Canceller) *SagaHandler {
+	h.canceller = c
+	return h
 }
 
 // startRequest is the body of POST /sagas/start.
@@ -144,6 +160,52 @@ func (h *SagaHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	WriteJSON(w, http.StatusOK, run)
+}
+
+// cancelRequest is the optional body of POST /sagas/{id}/cancel. The reason is
+// recorded on the run's last_error; an empty or absent body is tolerated.
+type cancelRequest struct {
+	Reason string `json:"reason"`
+}
+
+// Cancel handles POST /api/v1/sagas/{id}/cancel. It routes to the coordinator's
+// idempotent run-level cancel: a terminal run is a no-op and a cancelled child
+// re-evaluates its parent's join. Returns 202 on success, 400 on a bad id, 404
+// when the run does not exist, and 501 when no canceller is wired.
+func (h *SagaHandler) Cancel(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, CodeBadRequest, "invalid id")
+		return
+	}
+
+	// The body is optional; tolerate empty/no body and a missing reason.
+	var req cancelRequest
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			WriteError(w, http.StatusBadRequest, CodeBadRequest, "bad request body")
+			return
+		}
+	}
+
+	if h.canceller == nil {
+		WriteError(w, http.StatusNotImplemented, "not_implemented", "cancel is not available")
+		return
+	}
+
+	if err := h.canceller.Cancel(r.Context(), id, req.Reason); err != nil {
+		var nf store.ErrNotFound
+		if errors.As(err, &nf) {
+			WriteError(w, http.StatusNotFound, "saga_not_found", idStr)
+			return
+		}
+		log.Error().Err(err).Str("run_id", idStr).Msg("cancel run failed")
+		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
+		return
+	}
+
+	w.WriteHeader(http.StatusAccepted)
 }
 
 // listResponse is the body of GET /api/v1/sagas.

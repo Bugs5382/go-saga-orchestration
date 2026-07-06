@@ -47,6 +47,7 @@ func NewRouter(_ store.Store, sagas *SagaHandler, signals *SignalHandler, userTa
 		r.Get("/sagas", sagas.List)
 		r.Post("/sagas/start", sagas.Start)
 		r.Get("/sagas/{id}", sagas.Get)
+		r.Post("/sagas/{id}/cancel", sagas.Cancel)
 		r.Post("/sagas/{run_id}/signal/{name}", signals.Post)
 		r.Post("/sagas/{run_id}/user_task/{task_id}/submit", userTasks.Submit)
 		r.Post("/sagas/{run_id}/actions/{step_id}/result", actionResults.Post)
