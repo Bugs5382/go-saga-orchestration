@@ -8,6 +8,10 @@
 
 - feat(engine): add join verb to reconvene independently-spawned streams @Bugs5382 (#87)
 
+#### 🐛 Bug Fixes
+
+- fix(website): escape MDX-hazardous chars in the generated changelog page @Bugs5382 (#89)
+
 ### Extra
 
 **Full Changelog**: https://github.com/Bugs5382/go-saga-orchestration/compare/v0.5.0...v0.6.0
