@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.5.0 - 2026-07-06
+
+### What Changed 👀
+
+#### 🚀 Features
+
+- feat(api): add POST /sagas/{id}/cancel REST endpoint @Bugs5382 (#85)
+- feat(store): add AcquireAdvisoryLock helper for single-leader election @Bugs5382 (#84)
+
+### Extra
+
+**Full Changelog**: https://github.com/Bugs5382/go-saga-orchestration/compare/v0.4.0...v0.5.0
+
 ## v0.4.0 - 2026-06-29
 
 ### What Changed 👀
