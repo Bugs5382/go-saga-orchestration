@@ -27,15 +27,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
 	"github.com/Bugs5382/go-saga-orchestration/domain"
 	"github.com/Bugs5382/go-saga-orchestration/engine/verbs"
-	"github.com/Bugs5382/go-saga-orchestration/store"
 )
 
 // Advance walks the saga forward until it either reaches a terminal state or
@@ -265,6 +262,13 @@ func (c *Coordinator) checkParentJoin(ctx context.Context, run domain.SagaRun) {
 		return
 	}
 
+	// A join barrier (a later step in the same parent run) may also be
+	// watching this stream. checkParentJoin wakes a parent paused on the
+	// spawning step; checkJoinBarriers wakes a parent paused on a downstream
+	// join step. They are independent and both guarded and idempotent, so run
+	// the barrier check on every terminal write too.
+	c.checkJoinBarriers(ctx, run)
+
 	// Guard: only wake the parent if it is still paused on the same step that
 	// spawned this child. For spawn_saga (fire-and-forget), the parent advances
 	// immediately without pausing, so its CurrentStep differs from the child's
@@ -292,79 +296,12 @@ func (c *Coordinator) checkParentJoin(ctx context.Context, run domain.SagaRun) {
 		return
 	}
 	stepInputs := lookupStepInputs(parentDef, *run.ParentStepID)
-	joinStrategy, _ := stepInputs["join_strategy"].(string)
-	if joinStrategy == "" {
-		joinStrategy = "all"
-	}
-
-	switch joinStrategy {
-	case "all":
-		for _, sib := range siblings {
-			if !sib.State.IsTerminal() {
-				return // at least one sibling still running
-			}
-		}
-		// All siblings are terminal — fall through to wake.
-
-	case "quorum":
-		var quorumN int
-		switch qv := stepInputs["quorum_n"].(type) {
-		case string:
-			val, celErr := verbs.EvalQuorumNCEL(qv, parent.Variables)
-			if celErr != nil {
-				log.Warn().Err(celErr).Msg("child-join: quorum_n CEL eval failed — falling back to 'all'")
-				for _, sib := range siblings {
-					if !sib.State.IsTerminal() {
-						return
-					}
-				}
-				break
-			}
-			n, ok := verbs.ToIntFromAny(val)
-			if !ok || n <= 0 {
-				log.Warn().Msgf("child-join: quorum_n CEL result non-numeric (%T %v) — falling back to 'all'", val, val)
-				for _, sib := range siblings {
-					if !sib.State.IsTerminal() {
-						return
-					}
-				}
-				break
-			}
-			quorumN = n
-		default:
-			n, ok := verbs.ToInt(stepInputs["quorum_n"])
-			if !ok || n <= 0 {
-				log.Warn().Msg("child-join: quorum_n missing or invalid — falling back to 'all'")
-				for _, sib := range siblings {
-					if !sib.State.IsTerminal() {
-						return
-					}
-				}
-				break
-			}
-			quorumN = n
-		}
-		if quorumN > 0 {
-			succeeded := 0
-			for _, sib := range siblings {
-				if sib.State == domain.RunStateSucceeded {
-					succeeded++
-				}
-			}
-			if succeeded < quorumN {
-				return // quorum not yet reached
-			}
-		}
-		// Quorum reached (or fell through from 'all' fallback): wake. Remaining children keep running
-		// but no longer gate the parent.
-
-	default:
-		log.Warn().Str("join_strategy", joinStrategy).Msg("child-join: unknown join_strategy — no wake")
+	if !verbs.JoinConditionMet(stepInputs, parent.Variables, siblings) {
 		return
 	}
 
 	// Wake condition met. Aggregate child results into parent Variables first.
-	aggregated := aggregateChildResults(ctx, c.store, siblings, log.Logger)
+	aggregated := verbs.AggregateJoinResults(ctx, c.store, siblings)
 	if aggregated != nil {
 		merge := map[string]any{
 			"_parallel." + *run.ParentStepID + ".branches": aggregated,
@@ -396,45 +333,97 @@ func lookupStepInputs(def domain.WorkflowDefinition, stepID string) map[string]a
 	return step.Inputs
 }
 
-// aggregateChildResults builds the per-branch result list to write into
-// the parent's Variables._parallel.<step_id>.branches. For each child:
-//   - key: the child's ParentBranchID (or "b{index}" fallback)
-//   - variables: the child's final Variables map
-//   - state: the child's terminal state ("succeeded" or "failed")
-//   - _user_task: the first submitted user_task owned by the child (if any),
-//     as {id, result, submitted_by, submitted_at}. First by ID order wins.
-func aggregateChildResults(ctx context.Context, s store.Store, children []domain.SagaRun, log zerolog.Logger) []any {
-	out := make([]any, 0, len(children))
-	for i, child := range children {
-		key := ""
-		if child.ParentBranchID != nil {
-			key = *child.ParentBranchID
-		}
-		if key == "" {
-			key = fmt.Sprintf("b%d", i)
-		}
-		entry := map[string]any{
-			"key":       key,
-			"variables": child.Variables,
-			"state":     string(child.State),
-		}
-		tasks, err := s.ListUserTasksByRun(ctx, child.ID)
-		if err != nil {
-			log.Warn().Err(err).Str("child_run_id", child.ID.String()).Msg("child-join: list user_tasks failed")
-		}
-		for _, t := range tasks {
-			if t.SubmittedAt == nil {
-				continue
-			}
-			entry["_user_task"] = map[string]any{
-				"id":           t.ID.String(),
-				"result":       t.Result,
-				"submitted_by": t.SubmittedBy,
-				"submitted_at": t.SubmittedAt.UTC().Format(time.RFC3339),
-			}
-			break // first submitted wins
-		}
-		out = append(out, entry)
+// checkJoinBarriers re-evaluates any join steps in the parent run that are
+// waiting on the terminated run's stream (its ParentStepID). It fires after
+// any terminal state write, alongside checkParentJoin. Whereas checkParentJoin
+// wakes a parent paused on the SPAWNING step (parallel/sub_saga), a join
+// barrier is a LATER step in the same parent run: the parent's CurrentStep is
+// the join step, not the step that spawned the terminated child.
+//
+// For the terminated child, the "parent run" is *run.ParentRunID and the
+// stream it belongs to is *run.ParentStepID. This scans that parent's
+// definition for join steps whose "streams" list includes that stream id, and
+// for each such join step that the parent is currently paused on, aggregates
+// the union of watched children and wakes the parent if the strategy is met.
+//
+// Errors are logged and swallowed; the child's own terminal write already
+// committed.
+func (c *Coordinator) checkJoinBarriers(ctx context.Context, run domain.SagaRun) {
+	if run.ParentRunID == nil || run.ParentStepID == nil {
+		return
 	}
-	return out
+	parent, err := c.store.GetRun(ctx, *run.ParentRunID)
+	if err != nil {
+		log.Warn().Err(err).Str("parent_run_id", run.ParentRunID.String()).Msg("join-barrier: get parent failed")
+		return
+	}
+	if parent.State != domain.RunStatePaused {
+		return // parent not waiting; nothing to do
+	}
+	parentDef, err := c.store.GetWorkflowDefinition(ctx, parent.DefinitionID)
+	if err != nil {
+		log.Warn().Err(err).Msg("join-barrier: get parent def failed")
+		return
+	}
+	joinStep, ok := parentDef.StepByID(parent.CurrentStep)
+	if !ok || joinStep.Type != domain.StepTypeJoin {
+		return // parent is not paused on a join step
+	}
+
+	streamIDs, err := verbs.ResolveJoinStreams(joinStep.Inputs["streams"], parent.Variables)
+	if err != nil {
+		log.Warn().Err(err).Str("join_step", joinStep.ID).Msg("join-barrier: resolve streams failed")
+		return
+	}
+	// Only act if this terminated child belongs to a stream this join watches.
+	watchesThis := false
+	for _, sid := range streamIDs {
+		if sid == *run.ParentStepID {
+			watchesThis = true
+			break
+		}
+	}
+	if !watchesThis {
+		return
+	}
+
+	watched := []domain.SagaRun{}
+	seen := map[string]bool{}
+	for _, sid := range streamIDs {
+		if seen[sid] {
+			continue
+		}
+		seen[sid] = true
+		children, err := c.store.ListChildrenByParent(ctx, *run.ParentRunID, sid)
+		if err != nil {
+			log.Warn().Err(err).Str("stream", sid).Msg("join-barrier: list children failed")
+			return
+		}
+		watched = append(watched, children...)
+	}
+
+	if !verbs.JoinConditionMet(joinStep.Inputs, parent.Variables, watched) {
+		return // barrier not yet satisfied
+	}
+
+	// Barrier met: aggregate watched-child outputs into the parent, then wake.
+	aggregated := verbs.AggregateJoinResults(ctx, c.store, watched)
+	if aggregated != nil {
+		merge := map[string]any{
+			"_join." + joinStep.ID + ".branches": aggregated,
+		}
+		if err := c.store.UpdateRunVariables(ctx, *run.ParentRunID, merge); err != nil {
+			log.Warn().Err(err).Str("parent_run_id", run.ParentRunID.String()).Msg("join-barrier: write _join aggregate failed")
+			// Don't return; still wake the parent. The aggregate write is best-effort.
+		}
+	}
+	if err := c.store.WakeFromExternal(ctx, *run.ParentRunID); err != nil {
+		log.Warn().Err(err).Str("parent_run_id", run.ParentRunID.String()).Msg("join-barrier: WakeFromExternal failed")
+		return
+	}
+	if c.publisher != nil {
+		if err := c.publisher.PublishSagaAdvance(ctx, run.ParentRunID.String()); err != nil {
+			log.Warn().Err(err).Str("parent_run_id", run.ParentRunID.String()).Msg("join-barrier: publish advance failed")
+		}
+	}
 }

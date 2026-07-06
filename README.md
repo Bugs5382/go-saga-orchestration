@@ -6,7 +6,7 @@ A standalone, solution-agnostic **saga orchestrator + synchronous CEL rule evalu
 
 ## ✨ Features
 
-- **31 saga step types** — data transforms, HTTP/webhooks, timers, signals, events, parallel fan-out, foreach, loops, try/catch, human tasks, sub-sagas, and more (see the [verb reference](https://bugs5382.github.io/go-saga-orchestration/docs/verbs)).
+- **32 saga step types** — data transforms, HTTP/webhooks, timers, signals, events, parallel fan-out, join barriers, foreach, loops, try/catch, human tasks, sub-sagas, and more (see the [verb reference](https://bugs5382.github.io/go-saga-orchestration/docs/verbs)).
 - **Embed or deploy** — run in-process with zero infrastructure, or deploy as two Docker-friendly binaries backed by Postgres + RabbitMQ.
 - **CEL expressions** — [Google Common Expression Language](https://cel.dev) for conditions, transforms, filters, and routing, all evaluated against live run variables.
 - **Named entrypoints** — `Entrypoints map[string]string` on a `WorkflowDefinition` lets a single workflow serve multiple start scenarios; triggers and `sub_saga`/`spawn_saga` accept an `entrypoint` input.

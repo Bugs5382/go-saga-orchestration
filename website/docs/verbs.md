@@ -32,6 +32,7 @@ This page documents all 31 saga step types ("verbs") supported by the engine.
 | `try_catch` | loops_and_recovery | Push an error-handler frame; jump to `catch` on any step error. |
 | `cancel` | loops_and_recovery | Cancel a run (self or a target). |
 | `parallel` | parallel_control | Fan out N branches and join when a strategy is satisfied. |
+| `join` | parallel_control | Barrier: reconvene independently-spawned upstream streams before continuing. |
 | `foreach` | parallel_control | Fan out one branch per element of a CEL-evaluated list. |
 | `sub_saga` | compositions | Start a child workflow and pause the parent until it finishes. |
 | `spawn_saga` | compositions | Fire-and-forget: start a child workflow and continue immediately. |
@@ -474,6 +475,26 @@ Fans out N branches as child runs and pauses the parent until the join strategy 
 > ⚠️ Remaining branches continue to run after a quorum wake — they are not cancelled.
 
 **Example:** [`examples/workflows/parallel.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/parallel.json)
+
+---
+
+### `join`
+
+A **barrier** that reconvenes streams an earlier step spawned independently, before the run continues. Where `parallel` spawns its own branches and pauses on the same step, `join` waits on children that *previous* steps spawned in the same run — the natural producer is [`spawn_saga`](#spawn_saga), whose fire-and-forget children the run did not wait on. `join` lets a later step gather those streams back together.
+
+| Input | Required | Notes |
+|---|---|---|
+| `streams` | ✅ | `[]string` of upstream **step IDs** in this run whose spawned children the join waits on (or a CEL string → list of step IDs). Each named step must have spawned at least one child (`spawn_saga`, `parallel`, `foreach`, or `sub_saga`); the join watches the union of their children. |
+| `join_strategy` | optional | `"all"` (default) — wait for every watched child to reach a terminal state. `"quorum"` — resolve once `quorum_n` watched children have succeeded. |
+| `quorum_n` | required when `quorum` | Positive integer ≤ the watched-child count. Can also be a CEL string evaluated at runtime. |
+
+**Resolution:** If every/quorum watched child is already terminal when the join runs, it aggregates and continues without pausing. Otherwise it pauses; the engine re-evaluates the barrier whenever a watched child terminates and wakes the run once the strategy is met.
+
+**Output:** Each watched child's variables are aggregated into `Variables._join.<step_id>.branches` (same `{key, variables, state, _user_task?}` shape as `parallel`).
+
+> ⚠️ A misconfigured barrier fails fast: `streams` naming a step that spawned no children, or `quorum_n` exceeding the watched-child count, errors at the step rather than pausing forever. Remaining children continue to run after a quorum wake — they are not cancelled.
+
+**Example:** [`examples/workflows/join.json`](https://github.com/Bugs5382/go-saga-orchestration/blob/main/examples/workflows/join.json)
 
 ---
 
