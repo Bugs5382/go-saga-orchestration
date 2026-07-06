@@ -87,9 +87,10 @@ func (t *Timer) Run(ctx context.Context) error {
 
 // AcquireLeaderLock blocks until it can acquire the timer-dispatcher
 // advisory lock, then returns. Caller MUST release the lock (or close
-// the conn) on shutdown. v1 uses pgx directly; the helper is in the
-// postgres pkg so the engine pkg stays Postgres-agnostic.
+// the conn) on shutdown. The lock is held via pgx directly; the helper
+// lives in the postgres pkg so the engine pkg stays Postgres-agnostic.
 //
-// This is a stub — wired by cmd/engine via a postgres
-// helper. The Timer itself is decoupled from the lock; tests run
-// without a leader-election step.
+// The concrete helper is store/postgres.AcquireAdvisoryLock, wired by
+// cmd/engine so a single leader replica runs the dispatcher. The Timer
+// itself is decoupled from the lock; tests run without a leader-election
+// step.

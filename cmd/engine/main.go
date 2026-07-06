@@ -36,6 +36,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog/log"
 	googlegrpc "google.golang.org/grpc"
 
@@ -50,6 +51,7 @@ import (
 	"github.com/Bugs5382/go-saga-orchestration/internal/storefactory"
 	"github.com/Bugs5382/go-saga-orchestration/licensing"
 	"github.com/Bugs5382/go-saga-orchestration/secrets"
+	"github.com/Bugs5382/go-saga-orchestration/store/postgres"
 )
 
 var (
@@ -110,16 +112,31 @@ func main() {
 		verbs.WithHTTPDispatcher(httpDispatcher),
 		verbs.WithRMQDispatcher(pub))
 
-	// Every engine pod runs the timer dispatcher. For multi-replica production
-	// deployments, consider leader-elected single fire via pg_try_advisory_lock
-	// to avoid duplicate wakeups. Single-pod dev and tests are fine without it.
+	// The timer dispatcher is leader-elected: exactly one engine replica runs
+	// it at a time. Each pod races for the timer advisory lock and only the
+	// winner runs timer.Run, so multi-replica deployments do not fire duplicate
+	// wakeups. When the postgres store is not in use (dev/tests) the pool is nil
+	// and the dispatcher runs unconditionally.
 	timer := &engine.Timer{
 		S:         st,
 		Publisher: pub,
 		Clock:     clk,
 		Tick:      time.Second,
 	}
+	var enginePool *pgxpool.Pool
+	if ps, ok := st.(*postgres.Store); ok {
+		enginePool = ps.Pool()
+	}
 	go func() {
+		if enginePool != nil {
+			release, err := postgres.AcquireAdvisoryLock(ctx, enginePool, engine.TimerAdvisoryLockID)
+			if err != nil {
+				log.Error().Err(err).Msg("timer dispatcher: acquire leader lock")
+				return
+			}
+			log.Info().Msg("timer dispatcher: leader acquired")
+			defer release()
+		}
 		if err := timer.Run(ctx); err != nil && err != context.Canceled {
 			log.Error().Err(err).Msg("timer dispatcher")
 		}
