@@ -27,6 +27,8 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"net/url"
+	"strings"
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/pgx/v5"
@@ -49,6 +51,10 @@ var migrationsFS embed.FS
 func Migrate(dsn string) error {
 	if dsn == "" {
 		return fmt.Errorf("postgres.Migrate: DSN is empty")
+	}
+	dsn, err := withSearchPath(dsn)
+	if err != nil {
+		return fmt.Errorf("postgres.Migrate: %w", err)
 	}
 	src, err := iofs.New(migrationsFS, "migrations")
 	if err != nil {
@@ -76,4 +82,46 @@ func stripScheme(dsn string) string {
 		}
 	}
 	return dsn
+}
+
+// withSearchPath pins the migration connection's search_path so golang-migrate
+// can resolve the target schema deterministically.
+//
+// golang-migrate's pgx driver resolves the schema with SELECT CURRENT_SCHEMA(),
+// which returns NULL -- aborting the run with "no schema" -- whenever the
+// connection's search_path is unset. Behind PgBouncer in transaction pooling
+// mode this happens intermittently: a pooled server connection keeps whatever
+// search_path the previous client left it and PgBouncer does not reset it
+// between transactions, so migrations flake depending on which connection they
+// draw. Pinning search_path on the connection removes that dependency (and lets
+// the migration SQL create objects in the intended schema).
+//
+// The value rides in libpq/pgx's "options" startup field (-c search_path=...),
+// which PgBouncer forwards; a bare search_path startup parameter would be
+// rejected. An existing search_path in options is left alone, a search_path
+// query parameter is folded into options, otherwise it defaults to public.
+func withSearchPath(dsn string) (string, error) {
+	u, err := url.Parse(dsn)
+	if err != nil {
+		return "", fmt.Errorf("parse dsn: %w", err)
+	}
+	q := u.Query()
+
+	if strings.Contains(q.Get("options"), "search_path") {
+		return dsn, nil
+	}
+
+	schema := q.Get("search_path")
+	if schema == "" {
+		schema = "public"
+	}
+	q.Del("search_path")
+
+	setting := "-c search_path=" + schema
+	if opts := strings.TrimSpace(q.Get("options")); opts != "" {
+		setting = opts + " " + setting
+	}
+	q.Set("options", setting)
+	u.RawQuery = q.Encode()
+	return u.String(), nil
 }
