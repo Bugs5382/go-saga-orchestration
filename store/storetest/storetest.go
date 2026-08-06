@@ -69,6 +69,7 @@ func RunSuite(t *testing.T, newStore func(t *testing.T) store.Store) {
 		{"ActionDispatch", testActionDispatch},
 		{"Triggers", testTriggers},
 		{"ListRuns", testListRuns},
+		{"ListRunsNullCurrentStep", testListRunsNullCurrentStep},
 		{"Stats", testStats},
 	}
 	for _, g := range groups {
@@ -902,6 +903,39 @@ func testListRuns(t *testing.T, s store.Store) {
 	requireNoErr(t, err, "CountRuns")
 	if count != 3 {
 		t.Errorf("CountRuns(wf-a) = %d, want 3", count)
+	}
+}
+
+// testListRunsNullCurrentStep guards issue #98: a run whose current_step is
+// unset (NULL in postgres) must list without a scan error. A freshly created
+// pending run has an empty CurrentStep, which the postgres store persists as
+// NULL — listing it exercises the nullable-column scan path.
+func testListRunsNullCurrentStep(t *testing.T, s store.Store) {
+	// Pending run: empty current_step (→ NULL in postgres).
+	nullStep := newRun("wf-nullstep")
+	requireNoErr(t, s.CreateRun(ctx(), nullStep), "CreateRun(null step)")
+	// A second run with a populated current_step for contrast.
+	withStep := newRun("wf-nullstep")
+	withStep.State = domain.RunStateRunning
+	withStep.CurrentStep = "step1"
+	requireNoErr(t, s.CreateRun(ctx(), withStep), "CreateRun(with step)")
+
+	runs, err := s.ListRuns(ctx(), store.RunFilter{WorkflowID: "wf-nullstep"})
+	requireNoErr(t, err, "ListRuns(null current_step)")
+	if len(runs) != 2 {
+		t.Fatalf("ListRuns(wf-nullstep) = %d, want 2", len(runs))
+	}
+	var gotNull bool
+	for _, r := range runs {
+		if r.ID == nullStep.ID {
+			gotNull = true
+			if r.CurrentStep != "" {
+				t.Errorf("null-step run CurrentStep = %q, want empty", r.CurrentStep)
+			}
+		}
+	}
+	if !gotNull {
+		t.Error("ListRuns did not return the null-current_step run")
 	}
 }
 
