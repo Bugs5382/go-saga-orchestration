@@ -145,23 +145,41 @@ func (h *WorkflowHandler) List(w http.ResponseWriter, r *http.Request) {
 // UUID (as returned by Save). 404 when no definition has that id.
 func (h *WorkflowHandler) Get(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
-	id, err := uuid.Parse(idStr)
-	if err != nil {
-		WriteError(w, http.StatusBadRequest, CodeBadRequest, "invalid id")
-		return
-	}
-	def, err := h.S.GetWorkflowDefinition(r.Context(), id)
-	if err != nil {
-		var nf store.ErrNotFound
-		if errors.As(err, &nf) {
-			WriteError(w, http.StatusNotFound, "workflow_not_found", idStr)
+
+	// A definition is addressable either by its storage UUID or by its business
+	// workflow id (the human-meaningful `id` field, e.g. "order_fulfillment").
+	// A UUID resolves the exact stored row; a non-UUID resolves the newest
+	// version carrying that workflow id.
+	if id, err := uuid.Parse(idStr); err == nil {
+		def, err := h.S.GetWorkflowDefinition(r.Context(), id)
+		if err != nil {
+			var nf store.ErrNotFound
+			if errors.As(err, &nf) {
+				WriteError(w, http.StatusNotFound, "workflow_not_found", idStr)
+				return
+			}
+			log.Error().Err(err).Str("definition_id", idStr).Msg("get workflow definition failed")
+			WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 			return
 		}
-		log.Error().Err(err).Str("definition_id", idStr).Msg("get workflow definition failed")
+		WriteJSON(w, http.StatusOK, def)
+		return
+	}
+
+	// Non-UUID: resolve by business workflow id via the newest-first list.
+	defs, err := h.S.ListWorkflowDefinitions(r.Context(), store.DefinitionFilter{Search: idStr, Limit: 500})
+	if err != nil {
+		log.Error().Err(err).Str("workflow_id", idStr).Msg("resolve workflow definition by id failed")
 		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 		return
 	}
-	WriteJSON(w, http.StatusOK, def)
+	for _, def := range defs {
+		if def.ID == idStr {
+			WriteJSON(w, http.StatusOK, def)
+			return
+		}
+	}
+	WriteError(w, http.StatusNotFound, "workflow_not_found", idStr)
 }
 
 // Save handles POST /api/v1/workflows. It decodes a WorkflowDefinition,
