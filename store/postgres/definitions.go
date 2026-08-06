@@ -27,6 +27,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -91,6 +92,75 @@ func (s *Store) GetWorkflowDefinition(ctx context.Context, id uuid.UUID) (domain
 		return domain.WorkflowDefinition{}, err
 	}
 	return def, nil
+}
+
+// ListWorkflowDefinitions returns stored definitions matching filter,
+// newest-first (created_at DESC, version DESC). All versions of a workflow_id
+// are returned. The full definition is read back from the spec JSONB column,
+// mirroring the Get methods.
+func (s *Store) ListWorkflowDefinitions(ctx context.Context, filter store.DefinitionFilter) ([]domain.WorkflowDefinition, error) {
+	args := []any{}
+	idx := 1
+	q := `SELECT spec FROM definitions.workflow_definitions`
+
+	wheres := []string{}
+	if filter.Published != nil {
+		args = append(args, *filter.Published)
+		wheres = append(wheres, fmt.Sprintf("published = $%d", idx))
+		idx++
+	}
+	if filter.Search != "" {
+		args = append(args, "%"+filter.Search+"%")
+		wheres = append(wheres, fmt.Sprintf("(workflow_id ILIKE $%d OR name ILIKE $%d)", idx, idx))
+		idx++
+	}
+	if len(wheres) > 0 {
+		q += " WHERE "
+		for i, w := range wheres {
+			if i > 0 {
+				q += " AND "
+			}
+			q += w
+		}
+	}
+
+	q += " ORDER BY created_at DESC, version DESC"
+
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	args = append(args, limit)
+	q += fmt.Sprintf(" LIMIT $%d", idx)
+	idx++
+
+	if filter.Offset > 0 {
+		args = append(args, filter.Offset)
+		q += fmt.Sprintf(" OFFSET $%d", idx)
+		idx++ //nolint:ineffassign
+	}
+
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list workflow definitions: %w", err)
+	}
+	defer rows.Close()
+	out := []domain.WorkflowDefinition{}
+	for rows.Next() {
+		var spec []byte
+		if err := rows.Scan(&spec); err != nil {
+			return nil, fmt.Errorf("list workflow definitions scan: %w", err)
+		}
+		var def domain.WorkflowDefinition
+		if err := json.Unmarshal(spec, &def); err != nil {
+			return nil, fmt.Errorf("list workflow definitions unmarshal: %w", err)
+		}
+		out = append(out, def)
+	}
+	return out, rows.Err()
 }
 
 // GetPublishedWorkflowByID returns the highest-version published definition for

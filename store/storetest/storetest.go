@@ -50,6 +50,7 @@ func RunSuite(t *testing.T, newStore func(t *testing.T) store.Store) {
 		fn   func(t *testing.T, s store.Store)
 	}{
 		{"Definitions", testDefinitions},
+		{"ListDefinitions", testListDefinitions},
 		{"PublishedWorkflow", testPublishedWorkflow},
 		{"Runs", testRuns},
 		{"RunState", testRunState},
@@ -69,6 +70,7 @@ func RunSuite(t *testing.T, newStore func(t *testing.T) store.Store) {
 		{"ActionDispatch", testActionDispatch},
 		{"Triggers", testTriggers},
 		{"ListRuns", testListRuns},
+		{"ListRunsNullCurrentStep", testListRunsNullCurrentStep},
 		{"Stats", testStats},
 	}
 	for _, g := range groups {
@@ -161,6 +163,73 @@ func testDefinitions(t *testing.T, s store.Store) {
 
 	_, err = s.GetWorkflowDefinition(ctx(), uuid.New())
 	requireNotFound(t, err, "GetWorkflowDefinition(random)")
+}
+
+// testListDefinitions covers ListWorkflowDefinitions: newest-first ordering
+// (created_at DESC), all versions of a workflow returned (no dedupe), and the
+// Published filter.
+func testListDefinitions(t *testing.T, s store.Store) {
+	now := time.Now().UTC()
+	// def A: wf-list-a v1, published, oldest.
+	a := seedDef("wf-list-a", 1, true)
+	a.CreatedAt = now.Add(-2 * time.Minute)
+	// def B: wf-list-a v2, draft, middle (2nd version of same workflow).
+	b := seedDef("wf-list-a", 2, false)
+	b.CreatedAt = now.Add(-1 * time.Minute)
+	// def C: wf-list-b v1, published, newest.
+	c := seedDef("wf-list-b", 1, true)
+	c.CreatedAt = now
+	for _, d := range []domain.WorkflowDefinition{a, b, c} {
+		_, err := s.UpsertWorkflowDefinition(ctx(), d)
+		requireNoErr(t, err, "UpsertWorkflowDefinition")
+	}
+
+	// Unfiltered: all 3, newest-first (C, B, A).
+	all, err := s.ListWorkflowDefinitions(ctx(), store.DefinitionFilter{})
+	requireNoErr(t, err, "ListWorkflowDefinitions(all)")
+	if len(all) != 3 {
+		t.Fatalf("ListWorkflowDefinitions(all) = %d, want 3", len(all))
+	}
+	for i := 1; i < len(all); i++ {
+		if all[i].CreatedAt.After(all[i-1].CreatedAt) {
+			t.Errorf("ListWorkflowDefinitions not sorted CreatedAt DESC at %d", i)
+		}
+	}
+	if all[0].ID != "wf-list-b" || all[0].Version != 1 {
+		t.Errorf("newest = %s v%d, want wf-list-b v1", all[0].ID, all[0].Version)
+	}
+
+	// Both versions of wf-list-a are present (no dedupe).
+	versions := 0
+	for _, d := range all {
+		if d.ID == "wf-list-a" {
+			versions++
+		}
+	}
+	if versions != 2 {
+		t.Errorf("wf-list-a versions in list = %d, want 2 (no dedupe)", versions)
+	}
+
+	// Published filter = true → A and C.
+	published := true
+	pub, err := s.ListWorkflowDefinitions(ctx(), store.DefinitionFilter{Published: &published})
+	requireNoErr(t, err, "ListWorkflowDefinitions(published)")
+	if len(pub) != 2 {
+		t.Errorf("ListWorkflowDefinitions(published=true) = %d, want 2", len(pub))
+	}
+	for _, d := range pub {
+		if !d.Published {
+			t.Errorf("published filter returned draft %s v%d", d.ID, d.Version)
+		}
+	}
+
+	// Published filter = false → only B.
+	draft := false
+	drafts, err := s.ListWorkflowDefinitions(ctx(), store.DefinitionFilter{Published: &draft})
+	requireNoErr(t, err, "ListWorkflowDefinitions(draft)")
+	if len(drafts) != 1 || drafts[0].Version != 2 {
+		t.Errorf("ListWorkflowDefinitions(published=false) = %+v, want only wf-list-a v2", drafts)
+	}
 }
 
 func testPublishedWorkflow(t *testing.T, s store.Store) {
@@ -902,6 +971,39 @@ func testListRuns(t *testing.T, s store.Store) {
 	requireNoErr(t, err, "CountRuns")
 	if count != 3 {
 		t.Errorf("CountRuns(wf-a) = %d, want 3", count)
+	}
+}
+
+// testListRunsNullCurrentStep guards issue #98: a run whose current_step is
+// unset (NULL in postgres) must list without a scan error. A freshly created
+// pending run has an empty CurrentStep, which the postgres store persists as
+// NULL — listing it exercises the nullable-column scan path.
+func testListRunsNullCurrentStep(t *testing.T, s store.Store) {
+	// Pending run: empty current_step (→ NULL in postgres).
+	nullStep := newRun("wf-nullstep")
+	requireNoErr(t, s.CreateRun(ctx(), nullStep), "CreateRun(null step)")
+	// A second run with a populated current_step for contrast.
+	withStep := newRun("wf-nullstep")
+	withStep.State = domain.RunStateRunning
+	withStep.CurrentStep = "step1"
+	requireNoErr(t, s.CreateRun(ctx(), withStep), "CreateRun(with step)")
+
+	runs, err := s.ListRuns(ctx(), store.RunFilter{WorkflowID: "wf-nullstep"})
+	requireNoErr(t, err, "ListRuns(null current_step)")
+	if len(runs) != 2 {
+		t.Fatalf("ListRuns(wf-nullstep) = %d, want 2", len(runs))
+	}
+	var gotNull bool
+	for _, r := range runs {
+		if r.ID == nullStep.ID {
+			gotNull = true
+			if r.CurrentStep != "" {
+				t.Errorf("null-step run CurrentStep = %q, want empty", r.CurrentStep)
+			}
+		}
+	}
+	if !gotNull {
+		t.Error("ListRuns did not return the null-current_step run")
 	}
 }
 

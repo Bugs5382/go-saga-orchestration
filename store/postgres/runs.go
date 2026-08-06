@@ -690,7 +690,7 @@ func buildListRunsQuery(filter store.RunFilter, countOnly bool) (string, []any) 
 		q = "SELECT count(*) FROM runtime.saga_runs r"
 	} else {
 		q = `SELECT r.id, r.workflow_id, r.definition_id, r.tenant_id, r.state,
-		            r.current_step, r.inputs, r.variables, r.started_at, r.last_event_at,
+		            COALESCE(r.current_step, ''), r.inputs, r.variables, r.started_at, r.last_event_at,
 		            r.terminal_at, r.requires_manual_review, r.trigger_id, r.parent_run_id,
 		            r.dry_run, r.feature_overrides
 		     FROM runtime.saga_runs r`

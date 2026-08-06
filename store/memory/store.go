@@ -28,6 +28,7 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -115,6 +116,56 @@ func (s *Store) GetPublishedWorkflowByID(_ context.Context, workflowID string, _
 		return s.defs[ids[len(ids)-1]], nil
 	}
 	return domain.WorkflowDefinition{}, store.ErrNotFound{Entity: "workflow_definition", ID: workflowID}
+}
+
+// ListWorkflowDefinitions returns stored definitions matching filter,
+// newest-first (CreatedAt DESC, then Version DESC). All versions of a
+// workflow_id are returned (no dedupe).
+func (s *Store) ListWorkflowDefinitions(_ context.Context, filter store.DefinitionFilter) ([]domain.WorkflowDefinition, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	search := strings.ToLower(filter.Search)
+	matched := []domain.WorkflowDefinition{}
+	for _, d := range s.defs {
+		if filter.Published != nil && d.Published != *filter.Published {
+			continue
+		}
+		if search != "" &&
+			!strings.Contains(strings.ToLower(d.ID), search) &&
+			!strings.Contains(strings.ToLower(d.Name), search) {
+			continue
+		}
+		matched = append(matched, d)
+	}
+
+	// Newest-first: CreatedAt DESC, then Version DESC as a tiebreaker.
+	sort.SliceStable(matched, func(i, j int) bool {
+		if !matched[i].CreatedAt.Equal(matched[j].CreatedAt) {
+			return matched[i].CreatedAt.After(matched[j].CreatedAt)
+		}
+		return matched[i].Version > matched[j].Version
+	})
+
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= len(matched) {
+		return []domain.WorkflowDefinition{}, nil
+	}
+	end := offset + limit
+	if end > len(matched) {
+		end = len(matched)
+	}
+	return matched[offset:end], nil
 }
 
 // CreateRun stores run keyed by its ID.

@@ -50,6 +50,14 @@ type RunFilter struct {
 	Offset         int
 }
 
+// DefinitionFilter narrows ListWorkflowDefinitions queries. All fields optional.
+type DefinitionFilter struct {
+	Published *bool  // nil = any; true = only published; false = only drafts
+	Search    string // empty = any; case-insensitive substring match on workflow_id / name
+	Limit     int    // server caps at 500; 0 → 50 default
+	Offset    int
+}
+
 // WorkflowStats holds aggregate metrics for a single workflow.
 type WorkflowStats struct {
 	WorkflowID     string     `json:"workflow_id"`
@@ -64,6 +72,11 @@ type Store interface {
 	GetWorkflowDefinition(ctx context.Context, id uuid.UUID) (domain.WorkflowDefinition, error)
 	GetPublishedWorkflowByID(ctx context.Context, workflowID string, tenantID *uuid.UUID) (domain.WorkflowDefinition, error)
 	UpsertWorkflowDefinition(ctx context.Context, def domain.WorkflowDefinition) (uuid.UUID, error)
+	// ListWorkflowDefinitions returns stored definitions matching the optional
+	// filter, newest-first (by created_at DESC, then version DESC). Multiple
+	// versions of the same workflow_id are all returned (no dedupe). Limit +
+	// Offset paginate; zero Limit → 50 default, hard max 500 enforced here.
+	ListWorkflowDefinitions(ctx context.Context, filter DefinitionFilter) ([]domain.WorkflowDefinition, error)
 
 	// Runs
 	CreateRun(ctx context.Context, run domain.SagaRun) error
