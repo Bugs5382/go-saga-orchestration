@@ -53,6 +53,10 @@ func NewRouter(_ store.Store, sagas *SagaHandler, signals *SignalHandler, userTa
 		r.Post("/sagas/{run_id}/actions/{step_id}/result", actionResults.Post)
 		r.Get("/sagas/{run_id}/stream", streamHandler.Stream)
 
+		r.Get("/workflows", workflows.List)
+		r.Get("/workflows/{id}", workflows.Get)
+		r.Post("/workflows", workflows.Save)
+
 		r.Post("/registry/register", registryHandler.Register)
 		r.Get("/registry/actions", registryHandler.List)
 
