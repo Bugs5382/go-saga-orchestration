@@ -230,14 +230,15 @@ func TestWorkflowGet_NotFound(t *testing.T) {
 	}
 }
 
-// TestWorkflowGet_BadID — a non-uuid id yields 400.
-func TestWorkflowGet_BadID(t *testing.T) {
+// TestWorkflowGet_UnknownID — a non-uuid id is treated as a business workflow
+// id; when no definition carries it, the endpoint returns 404 (not 400).
+func TestWorkflowGet_UnknownID(t *testing.T) {
 	s := memory.New()
 	r := buildWorkflowDefsRouter(s)
-	req := httptest.NewRequest("GET", "/api/v1/workflows/not-a-uuid", nil)
+	req := httptest.NewRequest("GET", "/api/v1/workflows/not-a-known-workflow", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", w.Code)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", w.Code)
 	}
 }
