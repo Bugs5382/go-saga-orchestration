@@ -27,6 +27,8 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 import (
 	"context"
 	"encoding/json"
+	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -45,10 +47,81 @@ func (s *Store) UpsertWorkflowDefinition(ctx context.Context, def domain.Workflo
 	pipe := s.rdb.Pipeline()
 	pipe.Set(ctx, s.key("def", id.String()), b, 0)
 	pipe.RPush(ctx, s.key("def", "byname", def.ID), id.String())
+	pipe.SAdd(ctx, s.key("idx", "defs"), id.String())
 	if _, err := pipe.Exec(ctx); err != nil {
 		return uuid.Nil, err
 	}
 	return id, nil
+}
+
+// ListWorkflowDefinitions returns stored definitions matching filter,
+// newest-first (CreatedAt DESC, then Version DESC). All versions of a
+// workflow_id are returned (no dedupe).
+func (s *Store) ListWorkflowDefinitions(ctx context.Context, filter store.DefinitionFilter) ([]domain.WorkflowDefinition, error) {
+	members, err := s.rdb.SMembers(ctx, s.key("idx", "defs")).Result()
+	if err != nil {
+		return nil, err
+	}
+	if len(members) == 0 {
+		return []domain.WorkflowDefinition{}, nil
+	}
+	keys := make([]string, len(members))
+	for i, m := range members {
+		keys[i] = s.key("def", m)
+	}
+	vals, err := s.rdb.MGet(ctx, keys...).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	search := strings.ToLower(filter.Search)
+	matched := make([]domain.WorkflowDefinition, 0, len(vals))
+	for _, v := range vals {
+		if v == nil {
+			continue
+		}
+		var def domain.WorkflowDefinition
+		if err := unmarshalJSON([]byte(v.(string)), &def); err != nil {
+			return nil, err
+		}
+		if filter.Published != nil && def.Published != *filter.Published {
+			continue
+		}
+		if search != "" &&
+			!strings.Contains(strings.ToLower(def.ID), search) &&
+			!strings.Contains(strings.ToLower(def.Name), search) {
+			continue
+		}
+		matched = append(matched, def)
+	}
+
+	// Newest-first: CreatedAt DESC, then Version DESC as a tiebreaker.
+	sort.SliceStable(matched, func(i, j int) bool {
+		if !matched[i].CreatedAt.Equal(matched[j].CreatedAt) {
+			return matched[i].CreatedAt.After(matched[j].CreatedAt)
+		}
+		return matched[i].Version > matched[j].Version
+	})
+
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= len(matched) {
+		return []domain.WorkflowDefinition{}, nil
+	}
+	end := offset + limit
+	if end > len(matched) {
+		end = len(matched)
+	}
+	return matched[offset:end], nil
 }
 
 // GetWorkflowDefinition returns the definition stored at the given storage ID,
