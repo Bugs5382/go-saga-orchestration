@@ -62,7 +62,9 @@ func Backoff(p domain.RetryPolicy, attempt int, jitter bool) time.Duration {
 		base = capMS
 	}
 	if jitter {
-		noise := (rand.Float64()*0.5 - 0.25) // -25%..+25%
+		// Backoff jitter only spreads retries apart and is not security
+		// sensitive, so math/rand is deliberate here.
+		noise := (rand.Float64()*0.5 - 0.25) // #nosec G404 -- non-cryptographic jitter, -25%..+25%
 		base = base * (1 + noise)
 	}
 	return time.Duration(base) * time.Millisecond
