@@ -27,6 +27,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 
 	"github.com/Bugs5382/go-saga-orchestration/domain"
 	"github.com/Bugs5382/go-saga-orchestration/internal/cel"
@@ -271,6 +272,10 @@ func ToIntFromAny(v any) (int, bool) {
 	case float64:
 		return int(n), true
 	case uint64:
+		// Reject values past MaxInt rather than wrapping them negative.
+		if n > math.MaxInt {
+			return 0, false
+		}
 		return int(n), true
 	}
 	return 0, false
