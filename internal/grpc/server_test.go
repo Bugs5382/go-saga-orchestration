@@ -27,6 +27,7 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -41,11 +42,25 @@ import (
 	"github.com/Bugs5382/go-saga-orchestration/store/memory"
 )
 
-type capPub struct{ runs []string }
+// capPub records published run IDs. The gRPC handler publishes from its own
+// goroutine while the test polls, so access goes through the mutex; read
+// with snapshot.
+type capPub struct {
+	mu   sync.Mutex
+	runs []string
+}
 
 func (c *capPub) PublishSagaAdvance(_ context.Context, runID string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.runs = append(c.runs, runID)
 	return nil
+}
+
+func (c *capPub) snapshot() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.runs...)
 }
 
 func newTestServer(t *testing.T, s *memory.Store, pub AdvancePublisher) (pb.WorkerLivenessClient, func()) {
@@ -112,13 +127,13 @@ func TestExecuteStep_CompleteHappyPath(t *testing.T) {
 	// Wait for server to handle.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if len(pub.runs) > 0 {
+		if len(pub.snapshot()) > 0 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if len(pub.runs) != 1 || pub.runs[0] != run.ID.String() {
-		t.Errorf("publisher saw %v, want one publish of %s", pub.runs, run.ID)
+	if len(pub.snapshot()) != 1 || pub.snapshot()[0] != run.ID.String() {
+		t.Errorf("publisher saw %v, want one publish of %s", pub.snapshot(), run.ID)
 	}
 	got, _ := s.GetRun(ctx, run.ID)
 	if got.AwaitedActionDispatch != nil {
