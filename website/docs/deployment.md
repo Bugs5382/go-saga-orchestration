@@ -54,6 +54,7 @@ helm install go-saga \
 | `cron.dedicated` | `false` | Run the cron dispatcher on a dedicated pod and off the main engines (see below) |
 | `cron.replicas` | `1` | Replicas for the dedicated cron pod (only when `cron.dedicated`) |
 | `ingress.enabled` | `false` | Expose the api via Ingress |
+| `otel.endpoint` | `""` | OTLP gRPC collector as a bare `host:port` (→ `OTEL_EXPORTER_OTLP_ENDPOINT`). Empty leaves it unset: no exporter, trace context still propagates |
 
 See `deployments/helm/values.yaml` for the full set, including probes, resources, and security context.
 

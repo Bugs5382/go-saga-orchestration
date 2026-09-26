@@ -51,7 +51,7 @@ bundle of every page at `/llms-full.txt` (with an index at `/llms.txt`).
 Commands are defined in `Taskfile.yaml` (run with `go-task`):
 
 - Build: `task build` (`go build ./...`)
-- Test: `task test` (`go test ./...`). The `test/e2e` suite runs against the in-memory store, so it
+- Test: `task test` (`go test -race ./...`; CI runs the tests with `-race` too). The `test/e2e` suite runs against the in-memory store, so it
   needs no Postgres/RabbitMQ; the service binaries and `cmd/engine` do.
 - Lint: `task lint` (gofmt check, `golangci-lint run`, `yamllint .`)
 - License headers: `task license` (CI dry-run check) / `task license:fix` (inject MIT headers).
