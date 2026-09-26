@@ -9,3 +9,6 @@ data:
   WORKFLOW_ENGINE_GRPC_PORT: {{ .Values.engine.grpcPort | quote }}
   STORE_TYPE: {{ .Values.store.type | quote }}
   REDIS_RUN_TTL: {{ .Values.store.redisRunTTL | quote }}
+  {{- with (.Values.otel).endpoint }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ . | quote }}
+  {{- end }}

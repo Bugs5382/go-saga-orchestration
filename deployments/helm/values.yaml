@@ -99,6 +99,13 @@ cron:
   replicas: 1
   resources: {}
 
+# OpenTelemetry. endpoint is the OTLP gRPC collector as a bare host:port
+# (OTEL_EXPORTER_OTLP_ENDPOINT). Empty (the default) leaves the variable
+# unset: the binaries run without an exporter, but trace context still
+# propagates.
+otel:
+  endpoint: ""
+
 ingress:
   enabled: false
   className: ""
