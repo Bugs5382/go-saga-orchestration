@@ -51,7 +51,7 @@ func (s *Store) UpsertTrigger(_ context.Context, trigger domain.SagaTrigger) (uu
 	if trigger.CreatedAt.IsZero() {
 		trigger.CreatedAt = time.Now().UTC()
 	}
-	s.triggers[id] = trigger
+	s.triggers[id] = cloneTrigger(trigger)
 	return id, nil
 }
 
@@ -63,7 +63,7 @@ func (s *Store) GetTrigger(_ context.Context, id uuid.UUID) (domain.SagaTrigger,
 	if !ok {
 		return domain.SagaTrigger{}, store.ErrNotFound{Entity: "saga_trigger", ID: id.String()}
 	}
-	return t, nil
+	return cloneTrigger(t), nil
 }
 
 // ListTriggers returns triggers matching the optional filter.
@@ -83,7 +83,7 @@ func (s *Store) ListTriggers(_ context.Context, filter store.TriggerFilter) ([]d
 				continue
 			}
 		}
-		out = append(out, t)
+		out = append(out, cloneTrigger(t))
 	}
 	return out, nil
 }
@@ -111,7 +111,7 @@ func (s *Store) ListDueCronTriggers(_ context.Context, now time.Time, limit int)
 			continue
 		}
 		if !t.NextFireAt.After(now) { // next_fire_at <= now
-			out = append(out, t)
+			out = append(out, cloneTrigger(t))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].NextFireAt.Before(*out[j].NextFireAt) })
