@@ -1,19 +1,19 @@
-# go-saga-orchestration
+# go-saga-orchestration 🔀
 
-A standalone, solution-agnostic **saga orchestrator + synchronous CEL rule evaluator** you can embed as a Go library or run as a two-binary service.
+> 🧩 A standalone, solution-agnostic **saga orchestrator + synchronous CEL rule evaluator** you can embed as a Go library or run as a two-binary service.
 
 ---
 
 ## ✨ Features
 
-- **32 saga step types** — data transforms, HTTP/webhooks, timers, signals, events, parallel fan-out, join barriers, foreach, loops, try/catch, human tasks, sub-sagas, and more (see the [verb reference](https://bugs5382.github.io/go-saga-orchestration/docs/verbs)).
-- **Embed or deploy** — run in-process with zero infrastructure, or deploy as two Docker-friendly binaries backed by Postgres + RabbitMQ.
-- **CEL expressions** — [Google Common Expression Language](https://cel.dev) for conditions, transforms, filters, and routing, all evaluated against live run variables.
-- **Named entrypoints** — `Entrypoints map[string]string` on a `WorkflowDefinition` lets a single workflow serve multiple start scenarios; triggers and `sub_saga`/`spawn_saga` accept an `entrypoint` input.
-- **gRPC workers** — microservices connect over bidirectional gRPC streams to handle `action` steps and return results without polling.
-- **Durable audit trail** — every step transition, rule evaluation, signal, and metric is written as an immutable event row.
-- **License-gated verbs** — feature groups (`waits`, `parallel_control`, `human_interaction`, …) are checked at publish and runtime so environments only use the features they are licensed for.
-- **Scheduled starts** — cron-scheduled triggers start a workflow on a recurring schedule, fired durably (exactly once per window across engine pods).
+- 🧱 **32 saga step types** — data transforms, HTTP/webhooks, timers, signals, events, parallel fan-out, join barriers, foreach, loops, try/catch, human tasks, sub-sagas, and more (see the [verb reference](https://bugs5382.github.io/go-saga-orchestration/docs/verbs)).
+- 📦 **Embed or deploy** — run in-process with zero infrastructure, or deploy as two Docker-friendly binaries backed by Postgres + RabbitMQ.
+- 🧮 **CEL expressions** — [Google Common Expression Language](https://cel.dev) for conditions, transforms, filters, and routing, all evaluated against live run variables.
+- 🚪 **Named entrypoints** — `Entrypoints map[string]string` on a `WorkflowDefinition` lets a single workflow serve multiple start scenarios; triggers and `sub_saga`/`spawn_saga` accept an `entrypoint` input.
+- 🔌 **gRPC workers** — microservices connect over bidirectional gRPC streams to handle `action` steps and return results without polling.
+- 📜 **Durable audit trail** — every step transition, rule evaluation, signal, and metric is written as an immutable event row.
+- 🔑 **License-gated verbs** — feature groups (`waits`, `parallel_control`, `human_interaction`, …) are checked at publish and runtime so environments only use the features they are licensed for.
+- ⏰ **Scheduled starts** — cron-scheduled triggers start a workflow on a recurring schedule, fired durably (exactly once per window across engine pods).
 
 ---
 
@@ -88,7 +88,7 @@ See [`examples/basic`](examples/basic) for a runnable standalone example, and th
 
 ---
 
-## Local development
+## 🛠 Local development
 
 ```bash
 go run ./cmd/api     # REST API on :8080
@@ -101,7 +101,7 @@ End-to-end tests under `test/e2e` require Postgres + RabbitMQ.
 
 ---
 
-## Configuration
+## ⚙️ Configuration
 
 All configuration is via environment variables (`internal/config/config.go`):
 
@@ -117,7 +117,7 @@ All configuration is via environment variables (`internal/config/config.go`):
 
 ---
 
-## Layout
+## 🗂️ Layout
 
 **Public importable packages** (the library surface):
 - `saga` — facade (`saga.InMemory()`, `saga.New(saga.Options{...})`, `*saga.Saga`).
@@ -143,13 +143,13 @@ All configuration is via environment variables (`internal/config/config.go`):
 
 ---
 
-## History
+## 🕰️ History
 
 Built as a standalone, solution-agnostic saga engine. The orchestrator and the CEL rule evaluator are deliberately decoupled from any single application so the project can be embedded as a library or run as a service across unrelated solutions.
 
 ---
 
-## Acknowledgments
+## 🙏 Acknowledgments
 
 I couldn't have done this work without my wife, daughter, and son — thank you for
 letting me geek out and give something back to the community.
