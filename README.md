@@ -116,6 +116,7 @@ All configuration is via environment variables (`internal/config/config.go`):
 | `REDIS_RUN_TTL` | `0s` | both | Go duration; auto-expire terminal-run keys after this window (default `0s` = keep forever) |
 | `LOG_LEVEL` | `info` | both | Minimum log level — see [Logging](#-logging) |
 | `LOG_FORMAT` | `json` | both | Log rendering: `json`, `console`, or `both` — see [Logging](#-logging) |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | _(empty)_ | both | OTLP gRPC collector as a bare `host:port`; empty means no exporter — see [Tracing and metrics](#-tracing-and-metrics) |
 
 ---
 
@@ -156,6 +157,19 @@ The service binaries (`cmd/api`, `cmd/engine`) always log, configured by the env
 
 ---
 
+## 🔭 Tracing and metrics
+
+The service binaries set up OpenTelemetry with [go-otel](https://github.com/Bugs5382/go-otel): one `Init` call wires the tracer and meter providers and the W3C propagator, tagged `service.name=go-saga-orchestration-api` or `go-saga-orchestration-engine`.
+
+- **Opt-in export:** set `OTEL_EXPORTER_OTLP_ENDPOINT` (a bare `host:port`) and traces and metrics ship over OTLP gRPC. Leave it empty and nothing is exported, but spans still carry real trace IDs and an incoming `traceparent` is continued.
+- **Engine:** a `saga.advance` span per queue message, and gRPC server instrumentation on the worker stream.
+- **API:** a server span per request plus go-otel's request rate, error and duration metrics. Spans carry the method and status, never paths, queries or bodies.
+- **Logs join traces:** every log line inside a span carries its `trace_id` and `span_id`.
+
+The library itself never calls `Init`. Embedders keep their own OpenTelemetry setup, and the engine's log lines pick up the trace IDs of whatever span is active on the context.
+
+---
+
 ## 🗂️ Layout
 
 **Public importable packages** (the library surface):
@@ -171,7 +185,7 @@ The service binaries (`cmd/api`, `cmd/engine`) always log, configured by the env
 - `internal/mq` — RabbitMQ topology, publisher, consumer.
 - `internal/cel`, `internal/rules` — CEL evaluator + decision-table rule evaluation.
 - `internal/grpc` — gRPC worker liveness server.
-- `internal/config`, `internal/logging` — environment config + the service binaries' go-log logger.
+- `internal/config`, `internal/logging`, `internal/telemetry` — environment config, the service binaries' go-log logger, and their go-otel setup.
 
 **Binaries and supporting dirs**:
 - `cmd/api`, `cmd/engine` — the two service binaries (reference service-mode apps).
