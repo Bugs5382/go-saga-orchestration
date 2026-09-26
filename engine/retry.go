@@ -30,7 +30,7 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/rs/zerolog/log"
+	golog "github.com/Bugs5382/go-log"
 
 	"github.com/Bugs5382/go-saga-orchestration/domain"
 	"github.com/Bugs5382/go-saga-orchestration/engine/verbs"
@@ -99,15 +99,22 @@ func (c *Coordinator) executeStep(ctx context.Context, run domain.SagaRun, step 
 		}
 		// Out of attempts: surface the final error to the caller.
 		if attempt == maxAttempts-1 {
+			if maxAttempts > 1 {
+				c.logger(ctx).Warn("step retries exhausted", golog.F("run_id", run.ID.String()),
+					golog.F("step_id", step.ID), golog.F("attempts", maxAttempts))
+			}
 			return result, err
 		}
 		// Record the failed attempt, then wait the backoff before retrying.
 		_ = c.store.AppendEvent(ctx, domain.NewEvent(run.ID, step.ID, attempt+1, domain.EventStepFailed, "engine-retry"))
 		wait := Backoff(policy, attempt, policy.Jitter)
-		log.Debug().Str("run_id", run.ID.String()).Str("step_id", step.ID).
-			Int("attempt", attempt+1).Dur("backoff", wait).Err(err).Msg("step failed; retrying")
+		c.logger(ctx).Warn("step failed; retrying", golog.F("error", err.Error()), golog.F("run_id", run.ID.String()),
+			golog.F("step_id", step.ID), golog.F("step_type", string(step.Type)), golog.F("attempt", attempt+1),
+			golog.F("max_attempts", maxAttempts), golog.F("backoff_ms", wait.Milliseconds()))
 		select {
 		case <-ctx.Done():
+			c.logger(ctx).Debug("retry wait abandoned: context done", golog.F("run_id", run.ID.String()),
+				golog.F("step_id", step.ID))
 			return result, ctx.Err()
 		case <-c.clock.After(wait):
 		}

@@ -27,10 +27,11 @@ import (
 	"encoding/json"
 	"net/http"
 
+	golog "github.com/Bugs5382/go-log"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/rs/zerolog/log"
 
+	"github.com/Bugs5382/go-saga-orchestration/sagalog"
 	"github.com/Bugs5382/go-saga-orchestration/store"
 )
 
@@ -111,7 +112,7 @@ func (h *ActionResultHandler) Post(w http.ResponseWriter, r *http.Request) {
 	if body.Error != nil {
 		// Failure path — mirrors gRPC handleError -> FailAction.
 		if err := h.S.FailAction(r.Context(), runID, attempt, body.Error.Code, body.Error.Message, body.Error.Retryable); err != nil {
-			log.Error().Err(err).Str("run_id", runID.String()).Msg("action result: fail action")
+			sagalog.For(r.Context(), nil).Error(err, "action result: fail action", golog.F("run_id", runID.String()))
 			WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 			return
 		}
@@ -121,13 +122,13 @@ func (h *ActionResultHandler) Post(w http.ResponseWriter, r *http.Request) {
 
 	// Success path — mirrors gRPC handleComplete -> CompleteAction + advance.
 	if err := h.S.CompleteAction(r.Context(), runID, attempt, body.Result); err != nil {
-		log.Error().Err(err).Str("run_id", runID.String()).Msg("action result: complete action")
+		sagalog.For(r.Context(), nil).Error(err, "action result: complete action", golog.F("run_id", runID.String()))
 		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 		return
 	}
 	if h.Publisher != nil {
 		if err := h.Publisher.PublishSagaAdvance(r.Context(), runID.String()); err != nil {
-			log.Error().Err(err).Str("run_id", runID.String()).Msg("action result: publish advance")
+			sagalog.For(r.Context(), nil).Error(err, "action result: publish advance", golog.F("run_id", runID.String()))
 			WriteError(w, http.StatusInternalServerError, CodePublishFailed, genericInternalMessage)
 			return
 		}

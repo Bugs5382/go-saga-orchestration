@@ -49,14 +49,15 @@ SOFTWARE.
 
 import (
 	"context"
+	"fmt"
 	"time"
 
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
+	golog "github.com/Bugs5382/go-log"
 
 	"github.com/Bugs5382/go-saga-orchestration/clock"
 	"github.com/Bugs5382/go-saga-orchestration/domain"
 	"github.com/Bugs5382/go-saga-orchestration/licensing"
+	"github.com/Bugs5382/go-saga-orchestration/sagalog"
 	"github.com/Bugs5382/go-saga-orchestration/store"
 )
 
@@ -75,7 +76,7 @@ type CronDispatcher struct {
 	Tick      time.Duration // default 1s
 	Licensing licensing.Resolver
 	Providers []StartupVariableProvider
-	Logger    zerolog.Logger
+	Logger    golog.Logger // optional; nil = silent unless ctx carries a logger
 }
 
 // Run loops until ctx is cancelled. Each tick it calls fireDue to process all
@@ -92,7 +93,7 @@ func (d *CronDispatcher) Run(ctx context.Context) error {
 		case <-d.Clock.After(tick):
 		}
 		if err := d.fireDue(ctx); err != nil {
-			log.Error().Err(err).Msg("cron dispatcher: fireDue error")
+			sagalog.For(ctx, d.Logger).Error(err, "cron dispatcher: fireDue error")
 		}
 	}
 }
@@ -107,10 +108,8 @@ func (d *CronDispatcher) fireDue(ctx context.Context) error {
 		return err
 	}
 
-	logger := d.Logger
-	if logger.GetLevel() == zerolog.Disabled {
-		logger = log.Logger
-	}
+	logger := sagalog.For(ctx, d.Logger)
+	sagalog.Trace(logger, "cron dispatcher: poll", golog.F("due", len(triggers)))
 
 	var firstErr error
 	for _, tr := range triggers {
@@ -120,10 +119,7 @@ func (d *CronDispatcher) fireDue(ctx context.Context) error {
 		if hasInterval && intervalStr != "" {
 			d, parseErr := time.ParseDuration(intervalStr)
 			if parseErr != nil || d <= 0 {
-				logger.Warn().Err(parseErr).
-					Str("trigger_id", tr.ID.String()).
-					Str("interval", intervalStr).
-					Msg("cron dispatcher: invalid interval, skipping")
+				logger.Warn("cron dispatcher: invalid interval, skipping", golog.F("error", fmt.Sprint(parseErr)), golog.F("trigger_id", tr.ID.String()), golog.F("interval", intervalStr))
 				continue
 			}
 			next = now.Add(d)
@@ -131,10 +127,7 @@ func (d *CronDispatcher) fireDue(ctx context.Context) error {
 			schedStr, _ := tr.Config["schedule"].(string)
 			sched, parseErr := ParseSchedule(schedStr)
 			if parseErr != nil {
-				logger.Warn().Err(parseErr).
-					Str("trigger_id", tr.ID.String()).
-					Str("schedule", schedStr).
-					Msg("cron dispatcher: invalid schedule expression, skipping")
+				logger.Warn("cron dispatcher: invalid schedule expression, skipping", golog.F("error", parseErr.Error()), golog.F("trigger_id", tr.ID.String()), golog.F("schedule", schedStr))
 				continue
 			}
 			next = sched.Next(now)
@@ -142,27 +135,26 @@ func (d *CronDispatcher) fireDue(ctx context.Context) error {
 
 		won, claimErr := d.S.ClaimCronFire(ctx, tr.ID, *tr.NextFireAt, next)
 		if claimErr != nil {
-			logger.Error().Err(claimErr).Str("trigger_id", tr.ID.String()).Msg("cron dispatcher: claim error")
+			logger.Error(claimErr, "cron dispatcher: claim error", golog.F("trigger_id", tr.ID.String()))
 			if firstErr == nil {
 				firstErr = claimErr
 			}
 			continue
 		}
 		if !won {
+			logger.Debug("cron dispatcher: another instance claimed this fire", golog.F("trigger_id", tr.ID.String()))
 			continue
 		}
 
 		// License gate — do not start a run if the tenant is not entitled.
 		enabled, _ := d.Licensing.IsFeatureEnabled(ctx, tr.TenantID, FeatureCronTriggers, nil)
 		if !enabled {
-			logger.Info().
-				Str("trigger_id", tr.ID.String()).
-				Msg("cron dispatcher: feature disabled for tenant, skipping run")
+			logger.Info("cron dispatcher: feature disabled for tenant, skipping run", golog.F("trigger_id", tr.ID.String()))
 			continue
 		}
 
 		if err := d.startRun(ctx, tr, logger); err != nil {
-			logger.Error().Err(err).Str("trigger_id", tr.ID.String()).Msg("cron dispatcher: start run failed")
+			logger.Error(err, "cron dispatcher: start run failed", golog.F("trigger_id", tr.ID.String()))
 			if firstErr == nil {
 				firstErr = err
 			}
@@ -174,7 +166,7 @@ func (d *CronDispatcher) fireDue(ctx context.Context) error {
 
 // startRun executes the canonical saga-start sequence for a cron trigger:
 // resolve definition → upsert → create run → inject startup variables → publish.
-func (d *CronDispatcher) startRun(ctx context.Context, tr domain.SagaTrigger, logger zerolog.Logger) error {
+func (d *CronDispatcher) startRun(ctx context.Context, tr domain.SagaTrigger, logger golog.Logger) error {
 	def, err := d.S.GetPublishedWorkflowByID(ctx, tr.WorkflowID, tr.TenantID)
 	if err != nil {
 		return err
@@ -183,10 +175,7 @@ func (d *CronDispatcher) startRun(ctx context.Context, tr domain.SagaTrigger, lo
 	trigEntrypoint, _ := tr.Config["entrypoint"].(string)
 	startStep, err := def.ResolveEntry(trigEntrypoint)
 	if err != nil {
-		logger.Error().Err(err).
-			Str("trigger_id", tr.ID.String()).
-			Str("entrypoint", trigEntrypoint).
-			Msg("cron dispatcher: invalid entrypoint, skipping")
+		logger.Error(err, "cron dispatcher: invalid entrypoint, skipping", golog.F("trigger_id", tr.ID.String()), golog.F("entrypoint", trigEntrypoint))
 		return err
 	}
 
@@ -217,8 +206,10 @@ func (d *CronDispatcher) startRun(ctx context.Context, tr domain.SagaTrigger, lo
 	}
 
 	if recErr := d.S.RecordTriggerFire(ctx, tr.ID, tr.WorkflowID, &run.ID, ""); recErr != nil {
-		logger.Warn().Err(recErr).Str("trigger_id", tr.ID.String()).Msg("cron dispatcher: record trigger fire")
+		logger.Warn("cron dispatcher: record trigger fire", golog.F("error", recErr.Error()), golog.F("trigger_id", tr.ID.String()))
 	}
+	logger.Info("cron trigger fired; run started", golog.F("trigger_id", tr.ID.String()),
+		golog.F("workflow_id", tr.WorkflowID), golog.F("run_id", run.ID.String()))
 
 	return nil
 }

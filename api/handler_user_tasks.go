@@ -28,11 +28,12 @@ import (
 	"net/http"
 	"time"
 
+	golog "github.com/Bugs5382/go-log"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/rs/zerolog/log"
 
 	"github.com/Bugs5382/go-saga-orchestration/domain"
+	"github.com/Bugs5382/go-saga-orchestration/sagalog"
 	"github.com/Bugs5382/go-saga-orchestration/store"
 )
 
@@ -81,7 +82,7 @@ func (h *UserTaskHandler) Submit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.S.SubmitUserTask(r.Context(), taskID, body.SubmittedBy, body.Result); err != nil {
-		log.Error().Err(err).Str("task_id", taskID.String()).Msg("submit user task failed")
+		sagalog.For(r.Context(), nil).Error(err, "submit user task failed", golog.F("task_id", taskID.String()))
 		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 		return
 	}
@@ -95,19 +96,19 @@ func (h *UserTaskHandler) Submit(w http.ResponseWriter, r *http.Request) {
 		ReceivedAt: time.Now().UTC(),
 	}
 	if err := h.S.AppendSignal(r.Context(), sig); err != nil {
-		log.Error().Err(err).Str("run_id", task.RunID.String()).Msg("append signal failed")
+		sagalog.For(r.Context(), nil).Error(err, "append signal failed", golog.F("run_id", task.RunID.String()))
 		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 		return
 	}
 	ok, err := h.S.TryConsumeAwaitedSignal(r.Context(), task.RunID, signalName)
 	if err != nil {
-		log.Error().Err(err).Str("run_id", task.RunID.String()).Msg("consume awaited signal failed")
+		sagalog.For(r.Context(), nil).Error(err, "consume awaited signal failed", golog.F("run_id", task.RunID.String()))
 		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 		return
 	}
 	if ok && h.Publisher != nil {
 		if err := h.Publisher.PublishSagaAdvance(r.Context(), task.RunID.String()); err != nil {
-			log.Error().Err(err).Str("run_id", task.RunID.String()).Msg("publish advance failed")
+			sagalog.For(r.Context(), nil).Error(err, "publish advance failed", golog.F("run_id", task.RunID.String()))
 			WriteError(w, http.StatusInternalServerError, CodePublishFailed, genericInternalMessage)
 			return
 		}

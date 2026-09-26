@@ -32,8 +32,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	golog "github.com/Bugs5382/go-log"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/rs/zerolog/log"
 
 	"github.com/Bugs5382/go-saga-orchestration/api"
 	"github.com/Bugs5382/go-saga-orchestration/clock"
@@ -63,40 +63,42 @@ func (e *mqEventEmitter) EmitEvent(ctx context.Context, topic string, headers ma
 }
 
 func main() {
-	logging.Init(false)
+	// LOG_LEVEL (default info) and LOG_FORMAT (json, console or both) control
+	// this logger; see internal/logging.
+	logger := logging.New("go-saga-orchestration-api")
 	cfg := config.Load()
-	log.Info().Str("version", Version).Str("sha", GitSHA).Msg("starting go-saga-orchestration-api")
+	logger.Info("starting go-saga-orchestration-api", golog.F("version", Version), golog.F("sha", GitSHA))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	st, closeStore, err := storefactory.Open(ctx, cfg)
 	if err != nil {
-		log.Fatal().Err(err).Msg("store open")
+		logger.Fatal(err, "store open")
 	}
 	defer func() { _ = closeStore() }()
 
 	if cfg.StoreType == "" || cfg.StoreType == "postgres" {
-		log.Info().Msg("postgres migrations applied")
+		logger.Info("postgres migrations applied")
 	}
 
 	conn, err := mq.Connect(cfg.RabbitMQURL)
 	if err != nil {
-		log.Fatal().Err(err).Msg("rabbitmq connect")
+		logger.Fatal(err, "rabbitmq connect")
 	}
 	defer func() { _ = conn.Close() }()
 	pubCh, err := conn.Channel()
 	if err != nil {
-		log.Fatal().Err(err).Msg("rabbitmq channel")
+		logger.Fatal(err, "rabbitmq channel")
 	}
 	if err := mq.DeclareTopology(pubCh); err != nil {
-		log.Fatal().Err(err).Msg("rabbitmq topology")
+		logger.Fatal(err, "rabbitmq topology")
 	}
 	_ = pubCh.Close()
 
 	pub, err := mq.NewPublisher(conn)
 	if err != nil {
-		log.Fatal().Err(err).Msg("rabbitmq publisher")
+		logger.Fatal(err, "rabbitmq publisher")
 	}
 	defer func() { _ = pub.Close() }()
 
@@ -104,6 +106,7 @@ func main() {
 	// and publisher; Cancel only touches the store and re-evaluates a parent
 	// join, so the action-dispatch opts are not wired here.
 	coord := engine.NewCoordinator(st, pub, clock.SystemClock{}, secrets.NewMemory(map[string]string{}), licensing.StubAllowAll{}, pub, &mqEventEmitter{pub: pub})
+	coord.SetLogger(logger)
 	sagas := api.NewSagaHandler(st, pub).WithCanceller(coord)
 	signals := api.NewSignalHandler(st, pub)
 	userTasks := api.NewUserTaskHandler(st, pub)
@@ -118,19 +121,19 @@ func main() {
 	streamH := api.NewSagaStreamHandler(st, pgPool)
 	workflows := api.NewWorkflowHandler(st)
 	router := api.NewRouter(st, sagas, signals, userTasks, reg, rules, triggers, streamH, workflows, actionResults)
-	srv := &http.Server{Addr: ":" + cfg.API.Port, Handler: router}
+	srv := &http.Server{Addr: ":" + cfg.API.Port, Handler: api.LoggingMiddleware(logger)(router)}
 
 	go func() {
-		log.Info().Str("port", cfg.API.Port).Msg("http listening")
+		logger.Info("http listening", golog.F("port", cfg.API.Port))
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatal().Err(err).Msg("http")
+			logger.Fatal(err, "http")
 		}
 	}()
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
-	log.Info().Msg("shutting down")
+	logger.Info("shutting down")
 	shutCtx, c := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
 	defer c()
 	_ = srv.Shutdown(shutCtx)

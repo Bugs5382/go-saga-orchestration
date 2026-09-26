@@ -28,10 +28,11 @@ import (
 	"encoding/json"
 	"strings"
 
+	golog "github.com/Bugs5382/go-log"
 	"github.com/google/uuid"
-	"github.com/rs/zerolog/log"
 
 	"github.com/Bugs5382/go-saga-orchestration/domain"
+	"github.com/Bugs5382/go-saga-orchestration/sagalog"
 	"github.com/Bugs5382/go-saga-orchestration/store"
 )
 
@@ -43,6 +44,7 @@ type TriggerDispatcher struct {
 	S                store.Store
 	Publisher        TimerPublisher // reuse — same PublishSagaAdvance method
 	StartupProviders []StartupVariableProvider
+	Logger           golog.Logger // optional; nil = silent unless ctx carries a logger
 }
 
 // Dispatch inspects one delivery. For each enabled record_transition
@@ -113,10 +115,7 @@ func (d *TriggerDispatcher) Dispatch(ctx context.Context, evt EventDelivery) err
 		// 5. Start the saga: resolve definition, upsert, create run, publish.
 		def, err := d.S.GetPublishedWorkflowByID(ctx, trig.WorkflowID, tenantID)
 		if err != nil {
-			log.Error().Err(err).
-				Str("workflow_id", trig.WorkflowID).
-				Str("trigger_id", trig.ID.String()).
-				Msg("trigger dispatcher: workflow not found, skipping")
+			sagalog.For(ctx, d.Logger).Error(err, "trigger dispatcher: workflow not found, skipping", golog.F("workflow_id", trig.WorkflowID), golog.F("trigger_id", trig.ID.String()))
 			// ErrNotFound on the workflow is non-fatal — log and move on.
 			continue
 		}
@@ -125,16 +124,13 @@ func (d *TriggerDispatcher) Dispatch(ctx context.Context, evt EventDelivery) err
 		trigEntrypoint, _ := trig.Config["entrypoint"].(string)
 		startStep, err := def.ResolveEntry(trigEntrypoint)
 		if err != nil {
-			log.Error().Err(err).
-				Str("trigger_id", trig.ID.String()).
-				Str("entrypoint", trigEntrypoint).
-				Msg("trigger dispatcher: invalid entrypoint, skipping")
+			sagalog.For(ctx, d.Logger).Error(err, "trigger dispatcher: invalid entrypoint, skipping", golog.F("trigger_id", trig.ID.String()), golog.F("entrypoint", trigEntrypoint))
 			continue
 		}
 
 		defRowID, err := d.S.UpsertWorkflowDefinition(ctx, def)
 		if err != nil {
-			log.Error().Err(err).Str("trigger_id", trig.ID.String()).Msg("trigger dispatcher: upsert definition")
+			sagalog.For(ctx, d.Logger).Error(err, "trigger dispatcher: upsert definition", golog.F("trigger_id", trig.ID.String()))
 			if firstErr == nil {
 				firstErr = err
 			}
@@ -146,18 +142,18 @@ func (d *TriggerDispatcher) Dispatch(ctx context.Context, evt EventDelivery) err
 		trigID := trig.ID
 		run.TriggerID = &trigID
 		if err := d.S.CreateRun(ctx, run); err != nil {
-			log.Error().Err(err).Str("trigger_id", trig.ID.String()).Msg("trigger dispatcher: create run")
+			sagalog.For(ctx, d.Logger).Error(err, "trigger dispatcher: create run", golog.F("trigger_id", trig.ID.String()))
 			if firstErr == nil {
 				firstErr = err
 			}
 			continue
 		}
 
-		InjectStartupVariables(ctx, d.S, run.ID, tenantID, log.Logger, d.StartupProviders...)
+		InjectStartupVariables(ctx, d.S, run.ID, tenantID, d.Logger, d.StartupProviders...)
 
 		if d.Publisher != nil {
 			if err := d.Publisher.PublishSagaAdvance(ctx, run.ID.String()); err != nil {
-				log.Error().Err(err).Str("run_id", run.ID.String()).Msg("trigger dispatcher: publish advance")
+				sagalog.For(ctx, d.Logger).Error(err, "trigger dispatcher: publish advance", golog.F("run_id", run.ID.String()))
 				if firstErr == nil {
 					firstErr = err
 				}
@@ -166,7 +162,7 @@ func (d *TriggerDispatcher) Dispatch(ctx context.Context, evt EventDelivery) err
 		}
 
 		if recErr := d.S.RecordTriggerFire(ctx, trig.ID, trig.WorkflowID, &run.ID, ""); recErr != nil {
-			log.Warn().Err(recErr).Str("trigger_id", trig.ID.String()).Msg("trigger dispatcher: record trigger fire")
+			sagalog.For(ctx, d.Logger).Warn("trigger dispatcher: record trigger fire", golog.F("error", recErr.Error()), golog.F("trigger_id", trig.ID.String()))
 		}
 	}
 

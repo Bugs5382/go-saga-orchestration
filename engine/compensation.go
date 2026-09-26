@@ -49,7 +49,7 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 import (
 	"context"
 
-	"github.com/rs/zerolog/log"
+	golog "github.com/Bugs5382/go-log"
 
 	"github.com/Bugs5382/go-saga-orchestration/domain"
 	"github.com/Bugs5382/go-saga-orchestration/engine/verbs"
@@ -70,15 +70,19 @@ import (
 // failedStep is the step whose error triggered the rollback; it is not
 // compensated (it did not complete).
 func (c *Coordinator) compensate(ctx context.Context, run domain.SagaRun, def domain.WorkflowDefinition, failedStep domain.Step) {
+	lg := c.logger(ctx).With(golog.F("run_id", run.ID.String()), golog.F("failed_step", failedStep.ID))
 	completed := c.completedCompensableSteps(ctx, run, def, failedStep.ID)
 	if len(completed) == 0 {
+		lg.Debug("compensation: no completed steps to roll back")
 		return // nothing to roll back; caller settles to failed
 	}
 
 	if err := c.store.UpdateRunState(ctx, run.ID, domain.RunStateCompensating, run.CurrentStep); err != nil {
-		log.Warn().Err(err).Str("run_id", run.ID.String()).Msg("compensation: set compensating state failed")
+		lg.Error(err, "compensation: set compensating state failed")
 		return
 	}
+	lg.Debug("run state changed", golog.F("to_state", string(domain.RunStateCompensating)))
+	lg.Info("compensation started", golog.F("steps", len(completed)))
 	_ = c.store.AppendEvent(ctx, domain.NewEvent(run.ID, failedStep.ID, 0, domain.EventCompensationStarted, "engine"))
 
 	// Resolve the action verb so compensation reuses the action dispatch path.
@@ -90,19 +94,25 @@ func (c *Coordinator) compensate(ctx context.Context, run domain.SagaRun, def do
 	}
 
 	// Reverse order: most recently completed step is compensated first.
+	compensated, skipped, failed := 0, 0, 0
 	for i := len(completed) - 1; i >= 0; i-- {
 		step := completed[i]
+		slg := lg.With(golog.F("step_id", step.ID), golog.F("step_type", string(step.Type)))
 		if step.Compensation == nil {
-			log.Warn().Str("run_id", run.ID.String()).Str("step_id", step.ID).
-				Msg("compensation: step has no compensation; skipping")
+			slg.Warn("compensation: step has no compensation; skipping")
+			skipped++
 			continue
 		}
+		slg.Debug("compensating step", golog.F("action", step.Compensation.Action), golog.F("dry_run", run.DryRun))
 		if err := av.DispatchCompensation(ctx, run.ID.String(), step.ID, step.Compensation.Action, step.Compensation.Inputs, run.DryRun); err != nil {
-			log.Warn().Err(err).Str("run_id", run.ID.String()).Str("step_id", step.ID).
-				Msg("compensation: dispatch failed; continuing rollback")
+			slg.Error(err, "compensation: dispatch failed; continuing rollback", golog.F("action", step.Compensation.Action))
+			failed++
 			continue
 		}
+		slg.Debug("compensation dispatched", golog.F("action", step.Compensation.Action))
+		compensated++
 	}
+	lg.Info("compensation finished", golog.F("compensated", compensated), golog.F("skipped", skipped), golog.F("failed", failed))
 }
 
 // completedCompensableSteps returns, in completion order, the steps that
@@ -113,7 +123,7 @@ func (c *Coordinator) compensate(ctx context.Context, run domain.SagaRun, def do
 func (c *Coordinator) completedCompensableSteps(ctx context.Context, run domain.SagaRun, def domain.WorkflowDefinition, excludeID string) []domain.Step {
 	events, err := c.store.ListEventsByRun(ctx, run.ID)
 	if err != nil {
-		log.Warn().Err(err).Str("run_id", run.ID.String()).Msg("compensation: list events failed")
+		c.logger(ctx).Error(err, "compensation: list events failed", golog.F("run_id", run.ID.String()))
 		return nil
 	}
 	seen := map[string]bool{}

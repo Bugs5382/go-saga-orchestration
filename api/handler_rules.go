@@ -28,11 +28,12 @@ import (
 	"errors"
 	"net/http"
 
+	golog "github.com/Bugs5382/go-log"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/rs/zerolog/log"
 
 	"github.com/Bugs5382/go-saga-orchestration/internal/rules"
+	"github.com/Bugs5382/go-saga-orchestration/sagalog"
 	"github.com/Bugs5382/go-saga-orchestration/store"
 )
 
@@ -93,7 +94,7 @@ func (h *RulesHandler) Evaluate(w http.ResponseWriter, r *http.Request) {
 			WriteError(w, http.StatusNotFound, CodeNotFound, "rule not found: "+ruleID)
 			return
 		}
-		log.Error().Err(err).Str("rule_id", ruleID).Msg("get rule failed")
+		sagalog.For(r.Context(), nil).Error(err, "get rule failed", golog.F("rule_id", ruleID))
 		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 		return
 	}

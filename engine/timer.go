@@ -27,9 +27,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/rs/zerolog/log"
+	golog "github.com/Bugs5382/go-log"
 
 	"github.com/Bugs5382/go-saga-orchestration/clock"
+	"github.com/Bugs5382/go-saga-orchestration/sagalog"
 	"github.com/Bugs5382/go-saga-orchestration/store"
 )
 
@@ -53,6 +54,7 @@ type Timer struct {
 	Clock     clock.Clock
 	Tick      time.Duration // default 1s; tests use 10ms with FakeClock
 	BatchSize int           // default 100
+	Logger    golog.Logger  // optional; nil = silent unless ctx carries a logger
 }
 
 // Run loops until ctx is cancelled. Each tick: query due-wakeup runs,
@@ -74,12 +76,12 @@ func (t *Timer) Run(ctx context.Context) error {
 		}
 		ids, err := t.S.FindRunsByDueWakeup(ctx, t.Clock.Now(), batch)
 		if err != nil {
-			log.Error().Err(err).Msg("timer: find due wakeups")
+			sagalog.For(ctx, t.Logger).Error(err, "timer: find due wakeups")
 			continue
 		}
 		for _, id := range ids {
 			if err := t.Publisher.PublishSagaAdvance(ctx, id.String()); err != nil {
-				log.Error().Err(err).Str("run_id", id.String()).Msg("timer: publish saga.advance")
+				sagalog.For(ctx, t.Logger).Error(err, "timer: publish saga.advance", golog.F("run_id", id.String()))
 			}
 		}
 	}

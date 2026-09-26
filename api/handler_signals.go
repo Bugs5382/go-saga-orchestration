@@ -28,11 +28,12 @@ import (
 	"net/http"
 	"time"
 
+	golog "github.com/Bugs5382/go-log"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/rs/zerolog/log"
 
 	"github.com/Bugs5382/go-saga-orchestration/domain"
+	"github.com/Bugs5382/go-saga-orchestration/sagalog"
 	"github.com/Bugs5382/go-saga-orchestration/store"
 )
 
@@ -84,20 +85,20 @@ func (h *SignalHandler) Post(w http.ResponseWriter, r *http.Request) {
 			WriteError(w, http.StatusNotFound, CodeNotFound, "run not found")
 			return
 		}
-		log.Error().Err(err).Str("run_id", runID.String()).Msg("append signal failed")
+		sagalog.For(r.Context(), nil).Error(err, "append signal failed", golog.F("run_id", runID.String()))
 		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 		return
 	}
 
 	ok, err := h.S.TryConsumeAwaitedSignal(r.Context(), runID, name)
 	if err != nil {
-		log.Error().Err(err).Str("run_id", runID.String()).Msg("consume awaited signal failed")
+		sagalog.For(r.Context(), nil).Error(err, "consume awaited signal failed", golog.F("run_id", runID.String()))
 		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 		return
 	}
 	if ok && h.Publisher != nil {
 		if err := h.Publisher.PublishSagaAdvance(r.Context(), runID.String()); err != nil {
-			log.Error().Err(err).Str("run_id", runID.String()).Msg("publish advance failed")
+			sagalog.For(r.Context(), nil).Error(err, "publish advance failed", golog.F("run_id", runID.String()))
 			WriteError(w, http.StatusInternalServerError, CodePublishFailed, genericInternalMessage)
 			return
 		}

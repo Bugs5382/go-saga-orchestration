@@ -23,7 +23,11 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 
-import "fmt"
+import (
+	"fmt"
+
+	golog "github.com/Bugs5382/go-log"
+)
 
 // Action declares one handler the worker will register with go-saga-orchestration
 // on startup. Most fields mirror domain.ActionRegistration but the
@@ -59,6 +63,13 @@ type BootstrapConfig struct {
 
 	// Actions to register on boot.
 	Actions []Action
+
+	// Logger receives the worker's logs: startup, each delivery, handler
+	// outcome and every error. Optional: nil means the worker writes
+	// nothing, unless the ctx passed to Bootstrap carries a logger
+	// (sagalog.NewContext), which takes precedence. Build one with
+	// golog.NewLogger to honour LOG_LEVEL and LOG_FORMAT.
+	Logger golog.Logger
 }
 
 // Validate runs basic sanity checks on the config. Bootstrap calls this

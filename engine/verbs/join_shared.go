@@ -28,9 +28,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/rs/zerolog/log"
+	golog "github.com/Bugs5382/go-log"
 
 	"github.com/Bugs5382/go-saga-orchestration/domain"
+	"github.com/Bugs5382/go-saga-orchestration/sagalog"
 	"github.com/Bugs5382/go-saga-orchestration/store"
 )
 
@@ -134,8 +135,20 @@ func validateJoinStrategy(inputs map[string]any, vars map[string]any, watchedCou
 //     child-join behaviour), logged.
 //
 // An empty group is treated as not-met.
+//
+// JoinConditionMet logs nothing. Use JoinConditionMetCtx to log the fallbacks
+// through the logger carried on a context.
 func JoinConditionMet(inputs map[string]any, vars map[string]any, group []domain.SagaRun) bool {
+	return JoinConditionMetCtx(context.Background(), inputs, vars, group)
+}
+
+// JoinConditionMetCtx is JoinConditionMet with logging: quorum fallbacks and
+// unknown strategies are logged at warn through the logger carried by ctx
+// (see sagalog.NewContext), and the decision at trace.
+func JoinConditionMetCtx(ctx context.Context, inputs map[string]any, vars map[string]any, group []domain.SagaRun) bool {
+	lg := sagalog.For(ctx, nil)
 	if len(group) == 0 {
+		sagalog.Trace(lg, "join: empty group; not met")
 		return false
 	}
 	allTerminal := func() bool {
@@ -161,19 +174,20 @@ func JoinConditionMet(inputs map[string]any, vars map[string]any, group []domain
 		case string:
 			val, err := EvalQuorumNCEL(qv, vars)
 			if err != nil {
-				log.Warn().Err(err).Msg("join: quorum_n CEL eval failed - falling back to 'all'")
+				lg.Warn("join: quorum_n CEL eval failed - falling back to 'all'", golog.F("error", err.Error()))
 				return allTerminal()
 			}
 			n, ok := ToIntFromAny(val)
 			if !ok || n <= 0 {
-				log.Warn().Msgf("join: quorum_n CEL result non-numeric (%T %v) - falling back to 'all'", val, val)
+				// Log the result's type only: the value is derived from run variables.
+				lg.Warn("join: quorum_n CEL result non-numeric - falling back to 'all'", golog.F("result_type", fmt.Sprintf("%T", val)))
 				return allTerminal()
 			}
 			quorumN = n
 		default:
 			n, ok := ToInt(inputs["quorum_n"])
 			if !ok || n <= 0 {
-				log.Warn().Msg("join: quorum_n missing or invalid - falling back to 'all'")
+				lg.Warn("join: quorum_n missing or invalid - falling back to 'all'")
 				return allTerminal()
 			}
 			quorumN = n
@@ -184,9 +198,11 @@ func JoinConditionMet(inputs map[string]any, vars map[string]any, group []domain
 				succeeded++
 			}
 		}
+		sagalog.Trace(lg, "join: quorum evaluated", golog.F("succeeded", succeeded), golog.F("quorum_n", quorumN),
+			golog.F("group", len(group)))
 		return succeeded >= quorumN
 	default:
-		log.Warn().Str("join_strategy", joinStrategy).Msg("join: unknown join_strategy - no wake")
+		lg.Warn("join: unknown join_strategy - no wake", golog.F("join_strategy", joinStrategy))
 		return false
 	}
 }
@@ -216,7 +232,7 @@ func AggregateJoinResults(ctx context.Context, s store.Store, children []domain.
 		}
 		tasks, err := s.ListUserTasksByRun(ctx, child.ID)
 		if err != nil {
-			log.Warn().Err(err).Str("child_run_id", child.ID.String()).Msg("join: list user_tasks failed")
+			sagalog.For(ctx, nil).Error(err, "join: list user_tasks failed", golog.F("child_run_id", child.ID.String()))
 		}
 		for _, t := range tasks {
 			if t.SubmittedAt == nil {

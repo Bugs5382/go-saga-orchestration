@@ -26,10 +26,10 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 import (
 	"context"
 	"encoding/json"
-
-	"github.com/rs/zerolog"
+	golog "github.com/Bugs5382/go-log"
 
 	"github.com/Bugs5382/go-saga-orchestration/engine"
+	"github.com/Bugs5382/go-saga-orchestration/sagalog"
 	"github.com/Bugs5382/go-saga-orchestration/store"
 )
 
@@ -43,33 +43,37 @@ type InProcessEventEmitter struct {
 	store      store.Store
 	publisher  engine.Publisher
 	dispatcher *engine.TriggerDispatcher
-	log        zerolog.Logger
+	log        golog.Logger // nil = silent
 }
 
 // EmitEvent wakes paused runs awaiting topic (header-subset match) and then runs
 // the trigger dispatcher against the event so matching triggers start new runs.
 func (e *InProcessEventEmitter) EmitEvent(ctx context.Context, topic string, headers map[string]string, payload map[string]any) error {
+	lg := sagalog.For(ctx, e.log).With(golog.F("topic", topic))
 	runs, err := e.store.FindRunsByAwaitedEvent(ctx, topic)
 	if err != nil {
+		lg.Error(err, "emit_event: find waiting runs failed")
 		return err
 	}
+	lg.Debug("emit_event: delivering", golog.F("waiting_runs", len(runs)))
 	for _, r := range runs {
 		// Replicate engine/event_subscriber.go headersSubset: all keys in
 		// r.AwaitedEventHeaders must be present in the incoming headers with
 		// equal values. Empty AwaitedEventHeaders always matches.
 		if !inprocHeadersSubset(r.AwaitedEventHeaders, headers) {
+			sagalog.Trace(lg, "emit_event: headers do not match; skipping run", golog.F("run_id", r.ID.String()))
 			continue
 		}
 		// Best-effort per run: unlike engine.EventSubscriber.Deliver (which
 		// returns on the first error), one failing run must not block waking
 		// the rest, so we log and continue.
 		if err := e.store.WakeFromExternal(ctx, r.ID); err != nil {
-			e.log.Warn().Err(err).Str("run_id", r.ID.String()).Msg("emit_event: wake failed")
+			lg.Warn("emit_event: wake failed", golog.F("error", err.Error()), golog.F("run_id", r.ID.String()))
 			continue
 		}
 		if e.publisher != nil {
 			if err := e.publisher.PublishSagaAdvance(ctx, r.ID.String()); err != nil {
-				e.log.Warn().Err(err).Str("run_id", r.ID.String()).Msg("emit_event: publish advance failed")
+				lg.Warn("emit_event: publish advance failed", golog.F("error", err.Error()), golog.F("run_id", r.ID.String()))
 			}
 		}
 	}
@@ -80,11 +84,11 @@ func (e *InProcessEventEmitter) EmitEvent(ctx context.Context, topic string, hea
 	if e.dispatcher != nil {
 		body, err := json.Marshal(payload)
 		if err != nil {
-			e.log.Warn().Err(err).Str("topic", topic).Msg("emit_event: marshal payload for triggers failed")
+			lg.Warn("emit_event: marshal payload for triggers failed", golog.F("error", err.Error()), golog.F("topic", topic))
 			return nil
 		}
 		if err := e.dispatcher.Dispatch(ctx, engine.EventDelivery{Topic: topic, Headers: headers, Body: body}); err != nil {
-			e.log.Warn().Err(err).Str("topic", topic).Msg("emit_event: trigger dispatch failed")
+			lg.Warn("emit_event: trigger dispatch failed", golog.F("error", err.Error()), golog.F("topic", topic))
 		}
 	}
 	return nil

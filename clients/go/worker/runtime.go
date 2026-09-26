@@ -33,12 +33,13 @@ import (
 	"strings"
 	"time"
 
+	golog "github.com/Bugs5382/go-log"
 	amqp "github.com/rabbitmq/amqp091-go"
-	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
 	pb "github.com/Bugs5382/go-saga-orchestration/proto/livenesspb"
+	"github.com/Bugs5382/go-saga-orchestration/sagalog"
 )
 
 // Bootstrap connects to go-saga-orchestration's registry, registers the actions,
@@ -46,17 +47,27 @@ import (
 // client to the engine, and runs the consumer loop until ctx is
 // cancelled.
 func Bootstrap(ctx context.Context, cfg BootstrapConfig) error {
+	if _, ok := sagalog.FromContext(ctx); !ok && cfg.Logger != nil {
+		ctx = sagalog.NewContext(ctx, cfg.Logger)
+	}
+	lg := sagalog.For(ctx, nil).With(golog.F("service", cfg.Service))
 	if err := cfg.Validate(); err != nil {
+		lg.Error(err, "worker: invalid config")
 		return err
 	}
+	lg.Info("worker: starting", golog.F("service_version", cfg.ServiceVersion), golog.F("actions", len(cfg.Actions)))
 	// 1. Register actions via REST.
 	if err := registerWithOrchestrator(ctx, cfg); err != nil {
+		lg.Error(err, "worker: register actions failed")
 		return fmt.Errorf("worker: register: %w", err)
 	}
+	lg.Debug("worker: actions registered")
 
-	// 2. Open RabbitMQ + the per-service queue.
+	// 2. Open RabbitMQ + the per-service queue. The URL is not logged: it
+	// can carry credentials.
 	rmqConn, err := amqp.Dial(cfg.RmqURL)
 	if err != nil {
+		lg.Error(err, "worker: dial rabbitmq failed")
 		return fmt.Errorf("worker: dial rabbitmq: %w", err)
 	}
 	defer func() { _ = rmqConn.Close() }()
@@ -77,14 +88,17 @@ func Bootstrap(ctx context.Context, cfg BootstrapConfig) error {
 	}
 	deliveries, err := ch.Consume(queueName, "", false /*autoAck*/, false, false, false, nil)
 	if err != nil {
+		lg.Error(err, "worker: consume failed", golog.F("queue", queueName))
 		return fmt.Errorf("worker: consume: %w", err)
 	}
+	lg.Debug("worker: rabbitmq queue ready", golog.F("queue", queueName))
 
 	// 3. Open the long-lived gRPC client.
 	gconn, err := grpc.NewClient(cfg.GrpcURL,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
+		lg.Error(err, "worker: grpc client failed", golog.F("grpc_target", cfg.GrpcURL))
 		return fmt.Errorf("worker: grpc dial: %w", err)
 	}
 	defer func() { _ = gconn.Close() }()
@@ -97,9 +111,16 @@ func Bootstrap(ctx context.Context, cfg BootstrapConfig) error {
 	}
 
 	// 4. Consumer loop.
-	return consumeLoop(ctx, deliveries, func(ctx context.Context, d amqp.Delivery) {
+	lg.Info("worker: consuming", golog.F("queue", queueName))
+	err = consumeLoop(ctx, deliveries, func(ctx context.Context, d amqp.Delivery) {
 		processDelivery(ctx, d, handlers, client)
 	})
+	if ctx.Err() != nil {
+		lg.Info("worker: stopped", golog.F("reason", ctx.Err().Error()))
+	} else {
+		lg.Error(err, "worker: consumer loop ended")
+	}
+	return err
 }
 
 // registerWithOrchestrator POSTs the service's action declarations to the
@@ -188,12 +209,17 @@ func consumeLoop(ctx context.Context, deliveries <-chan amqp.Delivery, dispatch 
 // drives the gRPC stream (Start -> Heartbeats -> Complete/Error), and ACKs
 // the RabbitMQ message.
 func processDelivery(ctx context.Context, d amqp.Delivery, handlers map[string]Handler, client pb.WorkerLivenessClient) {
+	lg := sagalog.For(ctx, nil)
 	var payload ActionPayload
 	if err := json.Unmarshal(d.Body, &payload); err != nil {
-		log.Error().Err(err).Msg("worker: bad payload; nacking")
+		// The body is not logged: it carries step inputs.
+		lg.Error(err, "worker: bad payload; nacking", golog.F("body_bytes", len(d.Body)))
 		_ = d.Nack(false /*multiple*/, false /*requeue=false -> DLQ*/)
 		return
 	}
+	lg = lg.With(golog.F("run_id", payload.RunID), golog.F("step_id", payload.StepID),
+		golog.F("attempt", payload.Attempt), golog.F("action", payload.Action))
+	lg.Debug("worker: delivery received", golog.F("dry_run", payload.DryRun), golog.F("redelivered", d.Redelivered))
 	// Resolve handler by the suffix after the service prefix.
 	// payload.Action format: "<service>.<action_name>" — handlers map is keyed by action_name only.
 	name := payload.Action
@@ -202,21 +228,23 @@ func processDelivery(ctx context.Context, d amqp.Delivery, handlers map[string]H
 	}
 	h, ok := handlers[name]
 	if !ok {
-		log.Error().Str("action", payload.Action).Msg("worker: no handler for action")
+		lg.Error(nil, "worker: no handler for action")
 		_ = d.Nack(false, false)
 		return
 	}
-	if err := driveStream(ctx, payload, h, client); err != nil {
-		log.Error().Err(err).Msg("worker: stream failed; nacking with requeue")
+	started := time.Now()
+	if err := driveStream(ctx, lg, payload, h, client); err != nil {
+		lg.Error(err, "worker: stream failed; nacking with requeue", golog.F("duration_ms", time.Since(started).Milliseconds()))
 		_ = d.Nack(false, true /*requeue=true -> retry via redelivery*/)
 		return
 	}
+	lg.Debug("worker: delivery settled", golog.F("duration_ms", time.Since(started).Milliseconds()))
 	_ = d.Ack(false)
 }
 
 // driveStream opens an ExecuteStep stream, sends Start, runs the handler,
 // streams Heartbeats (optional in v1), sends Complete or Error, closes.
-func driveStream(ctx context.Context, payload ActionPayload, h Handler, client pb.WorkerLivenessClient) error {
+func driveStream(ctx context.Context, lg golog.Logger, payload ActionPayload, h Handler, client pb.WorkerLivenessClient) error {
 	stream, err := client.ExecuteStep(ctx)
 	if err != nil {
 		return fmt.Errorf("open stream: %w", err)
@@ -239,6 +267,7 @@ func driveStream(ctx context.Context, payload ActionPayload, h Handler, client p
 	}
 
 	// 3. Run the handler.
+	sagalog.Trace(lg, "worker: engine acknowledged; running handler")
 	result, hErr := h.Execute(ctx, payload)
 	if hErr != nil {
 		// Map to Error.
@@ -249,13 +278,23 @@ func driveStream(ctx context.Context, payload ActionPayload, h Handler, client p
 			code = cw.Code()
 			retryable = cw.Retryable()
 		}
-		_ = stream.Send(&pb.WorkerEvent{Event: &pb.WorkerEvent_Error{Error: &pb.Error{
+		lg.Warn("worker: handler failed; reporting to engine", golog.F("error", msg), golog.F("code", code),
+			golog.F("retryable", retryable))
+		if err := stream.Send(&pb.WorkerEvent{Event: &pb.WorkerEvent_Error{Error: &pb.Error{
 			Code: code, Message: msg, Retryable: retryable,
-		}}})
+		}}}); err != nil {
+			lg.Error(err, "worker: send error report failed")
+		}
 		return nil // gRPC layer ok; engine handles the failure
 	}
-	bs, _ := json.Marshal(result)
-	_ = stream.Send(&pb.WorkerEvent{Event: &pb.WorkerEvent_Complete{Complete: &pb.Complete{ResultJson: bs}}})
+	bs, err := json.Marshal(result)
+	if err != nil {
+		lg.Error(err, "worker: marshal handler result failed")
+	}
+	if err := stream.Send(&pb.WorkerEvent{Event: &pb.WorkerEvent_Complete{Complete: &pb.Complete{ResultJson: bs}}}); err != nil {
+		lg.Error(err, "worker: send complete failed")
+	}
+	lg.Info("worker: action completed", golog.F("result_keys", len(result)))
 	return nil
 }
 
@@ -293,7 +332,3 @@ func (e CodedError) Retryable() bool { return e.R }
 func Errorf(code string, retryable bool, format string, args ...any) CodedError {
 	return CodedError{C: code, Msg: fmt.Sprintf(format, args...), R: retryable}
 }
-
-// Compile-time assertion: zerolog log and time imports used.
-var _ = log.Logger
-var _ = time.Second

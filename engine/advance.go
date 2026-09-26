@@ -27,33 +27,50 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
+	golog "github.com/Bugs5382/go-log"
 	"github.com/google/uuid"
-	"github.com/rs/zerolog/log"
 
 	"github.com/Bugs5382/go-saga-orchestration/domain"
 	"github.com/Bugs5382/go-saga-orchestration/engine/verbs"
+	"github.com/Bugs5382/go-saga-orchestration/sagalog"
 )
 
 // Advance walks the saga forward until it either reaches a terminal state or
 // a step that needs external I/O (future async verbs). Each loop iteration
 // re-reads the run from the store so it sees any variable updates written by
 // the previous step.
+//
+// Logging: saga start and finish at info; each step's execution, success,
+// pause and state change at debug; per-iteration detail at trace; retries,
+// timeouts and caught failures at warn; failures at error. Only IDs, step
+// types, states and counts are logged, never variables, inputs or results.
 func (c *Coordinator) Advance(ctx context.Context, runIDStr string) error {
+	if _, ok := sagalog.FromContext(ctx); !ok && c.log != nil {
+		ctx = sagalog.NewContext(ctx, c.log)
+	}
+	lg := c.logger(ctx).With(golog.F("run_id", runIDStr))
 	runID, err := uuid.Parse(runIDStr)
 	if err != nil {
+		lg.Error(err, "advance: invalid run id")
 		return fmt.Errorf("parse run id: %w", err)
 	}
+	lg.Debug("advance started")
 	for {
 		// Stop between steps if the context was cancelled (e.g. Saga.Shutdown).
 		if err := ctx.Err(); err != nil {
+			lg.Debug("advance stopped: context done", golog.F("reason", err.Error()))
 			return err
 		}
 		run, err := c.store.GetRun(ctx, runID)
 		if err != nil {
+			lg.Error(err, "advance: get run failed")
 			return fmt.Errorf("get run: %w", err)
 		}
+		sagalog.Trace(lg, "advance iteration", golog.F("state", string(run.State)), golog.F("step_id", run.CurrentStep))
 		if run.State.IsTerminal() {
+			lg.Debug("advance: run already terminal", golog.F("state", string(run.State)))
 			return nil
 		}
 
@@ -76,25 +93,35 @@ func (c *Coordinator) Advance(ctx context.Context, runIDStr string) error {
 				// waking (TryConsumeAwaitedSignal / WakeFromExternal), so timedOut
 				// is false in that case → step.Next is used unchanged (backward-compat).
 				timedOut := wakeupDue && (run.AwaitedSignal != nil || run.AwaitedEventTopic != nil)
+				wake := "external"
+				if wakeupDue {
+					wake = "timer"
+				}
+				lg.Debug("run waking from pause", golog.F("step_id", run.CurrentStep), golog.F("wake", wake))
 
 				// Wakeup condition met: clear pause state.
 				if err := c.store.ClearPause(ctx, run.ID); err != nil {
+					lg.Error(err, "advance: clear pause failed", golog.F("step_id", run.CurrentStep))
 					return fmt.Errorf("clear pause: %w", err)
 				}
 				// Re-read to get cleared state with same CurrentStep.
 				run, err = c.store.GetRun(ctx, runID)
 				if err != nil {
+					lg.Error(err, "advance: re-read after clear pause failed")
 					return fmt.Errorf("re-read after clear: %w", err)
 				}
 				// The wait verb already succeeded (it returned ErrSagaPaused after
 				// persisting its pause marker). Emit step.succeeded now and advance to next.
 				def, err := c.store.GetWorkflowDefinition(ctx, run.DefinitionID)
 				if err != nil {
+					lg.Error(err, "advance: get definition after clear pause failed", golog.F("workflow_id", run.WorkflowID))
 					return fmt.Errorf("get def after clear: %w", err)
 				}
 				step, ok := def.StepByID(run.CurrentStep)
 				if !ok {
-					return fmt.Errorf("def missing step %s", run.CurrentStep)
+					err := fmt.Errorf("def missing step %s", run.CurrentStep)
+					lg.Error(err, "advance: paused step missing from definition", golog.F("step_id", run.CurrentStep))
+					return err
 				}
 				_ = c.store.AppendEvent(ctx, domain.NewEvent(run.ID, step.ID, 0, domain.EventStepSucceeded, "engine"))
 				next := step.Next
@@ -102,16 +129,24 @@ func (c *Coordinator) Advance(ctx context.Context, runIDStr string) error {
 					if br, ok := step.Branches["timeout"]; ok && br.Next != "" {
 						next = br.Next
 					}
+					lg.Warn("wait timed out", golog.F("step_id", step.ID), golog.F("step_type", string(step.Type)),
+						golog.F("next", next))
 				}
 				if next == "" {
-					return fmt.Errorf("paused step %s has no next", step.ID)
+					err := fmt.Errorf("paused step %s has no next", step.ID)
+					lg.Error(err, "advance: paused step has no next", golog.F("step_id", step.ID))
+					return err
 				}
 				if err := c.store.UpdateRunState(ctx, run.ID, domain.RunStateRunning, next); err != nil {
+					lg.Error(err, "advance: set next after pause failed", golog.F("step_id", step.ID), golog.F("next", next))
 					return fmt.Errorf("set next after clear: %w", err)
 				}
+				lg.Debug("run state changed", golog.F("from_state", string(domain.RunStatePaused)),
+					golog.F("to_state", string(domain.RunStateRunning)), golog.F("step_id", next))
 				// Re-read so the loop's next iteration sees the new CurrentStep.
 				run, err = c.store.GetRun(ctx, runID)
 				if err != nil {
+					lg.Error(err, "advance: re-read after next failed")
 					return fmt.Errorf("re-read after next: %w", err)
 				}
 				// Continue loop with updated run (CurrentStep now points to step.Next).
@@ -120,11 +155,13 @@ func (c *Coordinator) Advance(ctx context.Context, runIDStr string) error {
 			}
 			// Still legitimately paused (wakeup in the future, or pending await markers).
 			// This advance call arrived prematurely — ACK without action.
+			lg.Debug("advance: run still paused", golog.F("step_id", run.CurrentStep))
 			return nil
 		}
 
 		def, err := c.store.GetWorkflowDefinition(ctx, run.DefinitionID)
 		if err != nil {
+			lg.Error(err, "advance: get definition failed", golog.F("workflow_id", run.WorkflowID))
 			return fmt.Errorf("get definition: %w", err)
 		}
 
@@ -134,14 +171,22 @@ func (c *Coordinator) Advance(ctx context.Context, runIDStr string) error {
 		}
 		if run.State == domain.RunStatePending {
 			_ = c.store.AppendEvent(ctx, domain.NewEvent(run.ID, "", 0, domain.EventSagaStarted, "engine"))
+			lg.Info("saga started", golog.F("workflow_id", run.WorkflowID), golog.F("workflow_version", def.Version),
+				golog.F("start_step", stepID), golog.F("dry_run", run.DryRun))
 		}
 		step, ok := def.StepByID(stepID)
 		if !ok {
-			return fmt.Errorf("definition references missing step: %s", stepID)
+			err := fmt.Errorf("definition references missing step: %s", stepID)
+			lg.Error(err, "advance: step missing from definition", golog.F("step_id", stepID), golog.F("workflow_id", run.WorkflowID))
+			return err
 		}
+		slg := lg.With(golog.F("step_id", step.ID), golog.F("step_type", string(step.Type)))
 
 		_ = c.store.AppendEvent(ctx, domain.NewEvent(run.ID, step.ID, 0, domain.EventStepDispatched, "engine"))
 		_ = c.store.UpdateRunState(ctx, run.ID, domain.RunStateRunning, step.ID)
+		if run.State != domain.RunStateRunning {
+			slg.Debug("run state changed", golog.F("from_state", string(run.State)), golog.F("to_state", string(domain.RunStateRunning)))
+		}
 
 		if step.Type == domain.StepTypeEnd {
 			return c.completeRun(ctx, run, step)
@@ -149,7 +194,9 @@ func (c *Coordinator) Advance(ctx context.Context, runIDStr string) error {
 
 		entry, ok := c.verbs[step.Type]
 		if !ok {
-			return fmt.Errorf("no handler registered for step type: %s", step.Type)
+			err := fmt.Errorf("no handler registered for step type: %s", step.Type)
+			slg.Error(err, "advance: no verb registered for step type")
+			return err
 		}
 		// Runtime license gate — check before dispatch.
 		group := verbs.LicenseGroupForStep(step, entry.LicenseGroup)
@@ -157,35 +204,50 @@ func (c *Coordinator) Advance(ctx context.Context, runIDStr string) error {
 			overrides := run.FeatureOverrides
 			enabled, err := c.licensing.IsFeatureEnabled(ctx, run.TenantID, feature, overrides)
 			if err != nil {
+				slg.Error(err, "license check failed; failing run", golog.F("feature", feature))
 				_ = c.store.AppendEvent(ctx, domain.NewEvent(run.ID, step.ID, 0, domain.EventLicenseGateRejected, "engine"))
 				_ = c.store.MarkRunFailed(ctx, run.ID, step.ID, fmt.Sprintf("license check for feature %q: %v", feature, err))
 				return fmt.Errorf("license check for step %q (feature %q): %w", step.ID, feature, err)
 			}
 			if !enabled {
+				err := fmt.Errorf("license_gate: feature %q not enabled for tenant", feature)
+				slg.Error(err, "license gate rejected step; failing run", golog.F("feature", feature), golog.F("group", group))
 				evt := domain.NewEvent(run.ID, step.ID, 0, domain.EventLicenseGateRejected, "engine")
 				evt.Metadata = map[string]any{"group": group, "feature": feature}
 				_ = c.store.AppendEvent(ctx, evt)
 				_ = c.store.MarkRunFailed(ctx, run.ID, step.ID, fmt.Sprintf("license_gate: feature %q not enabled for tenant", feature))
-				return fmt.Errorf("license_gate: feature %q not enabled for tenant", feature)
+				return err
 			}
+			sagalog.Trace(slg, "license gate passed", golog.F("feature", feature))
 		}
+		slg.Debug("step executing")
+		started := time.Now()
 		result, err := c.executeStep(ctx, run, step, entry.Handler)
+		elapsed := time.Since(started).Milliseconds()
 		if errors.Is(err, verbs.ErrSagaPaused) {
 			_ = c.store.AppendEvent(ctx, domain.NewEvent(run.ID, step.ID, 0, domain.EventStepPaused, "engine"))
+			slg.Debug("step paused; waiting for wakeup", golog.F("duration_ms", elapsed))
 			return nil // ACK queue msg; external/timer wakeup will republish saga.advance
 		}
 		if errors.Is(err, verbs.ErrSagaCancelled) {
 			_ = c.store.AppendEvent(ctx, domain.NewEvent(run.ID, "", 0, domain.EventRunCancelled, "engine"))
 			if err := c.store.UpdateRunState(ctx, run.ID, domain.RunStateCancelled, step.ID); err != nil {
+				slg.Error(err, "cancel: set cancelled state failed")
 				return fmt.Errorf("cancel: set cancelled: %w", err)
 			}
+			slg.Info("saga cancelled", golog.F("from_state", string(domain.RunStateRunning)))
 			c.checkParentJoin(ctx, run)
 			return nil
 		}
 		if err != nil {
 			// Check try_catch stack — if non-empty, jump to catch step instead of failing.
 			frame, popped, popErr := c.store.PopTryCatch(ctx, run.ID)
+			if popErr != nil {
+				slg.Error(popErr, "advance: pop try_catch frame failed")
+			}
 			if popErr == nil && popped {
+				slg.Warn("step failed; caught by try_catch", golog.F("catch_step", frame.CatchStep),
+					golog.F("error", err.Error()), golog.F("duration_ms", elapsed))
 				errMap := map[string]any{
 					"_error": map[string]any{
 						"step_id": step.ID,
@@ -199,34 +261,47 @@ func (c *Coordinator) Advance(ctx context.Context, runIDStr string) error {
 				continue // re-loop with the catch step
 			}
 			// No try_catch frame: record the failure, roll back completed steps, then fail.
+			slg.Error(err, "step failed", golog.F("duration_ms", elapsed))
 			_ = c.store.AppendEvent(ctx, domain.NewEvent(run.ID, step.ID, 0, domain.EventStepFailed, "engine"))
 			c.compensate(ctx, run, def, step)
 			// Persist the failing step's error so the failed run is
 			// self-describing (issue #80), not just state=failed.
-			_ = c.store.MarkRunFailed(ctx, run.ID, step.ID, fmt.Sprintf("step %q (%s): %v", step.ID, step.Type, err))
+			if mErr := c.store.MarkRunFailed(ctx, run.ID, step.ID, fmt.Sprintf("step %q (%s): %v", step.ID, step.Type, err)); mErr != nil {
+				slg.Error(mErr, "advance: mark run failed failed")
+			}
+			slg.Error(err, "saga failed", golog.F("workflow_id", run.WorkflowID))
 			c.checkParentJoin(ctx, run)
 			return fmt.Errorf("verb %s: %w", step.Type, err)
 		}
+		sagalog.Trace(slg, "step result", golog.F("result_keys", len(result)))
 		if len(result) > 0 {
 			if err := c.store.UpdateRunVariables(ctx, run.ID, result); err != nil {
+				slg.Error(err, "advance: update variables failed")
 				return fmt.Errorf("update variables: %w", err)
 			}
 		}
 		_ = c.store.AppendEvent(ctx, domain.NewEvent(run.ID, step.ID, 0, domain.EventStepSucceeded, "engine"))
 
 		next := step.Next
-		if branchKey, ok := result["branch"].(string); ok && branchKey != "" {
+		branchKey, hasBranch := result["branch"].(string)
+		if hasBranch && branchKey != "" {
 			if br, found := step.Branches[branchKey]; found {
 				next = br.Next
 			} else if step.Type == domain.StepTypeDecision || step.Type == domain.StepTypeWhile || step.Type == domain.StepTypeSwitch {
 				// For verbs that always require branch resolution, a missing branch is an error.
-				return fmt.Errorf("%s branch %q not found in step.Branches", step.Type, branchKey)
+				err := fmt.Errorf("%s branch %q not found in step.Branches", step.Type, branchKey)
+				slg.Error(err, "advance: branch not found", golog.F("branch", branchKey))
+				return err
 			}
 		}
+		slg.Debug("step succeeded", golog.F("next", next), golog.F("branch", branchKey), golog.F("duration_ms", elapsed))
 		if next == "" {
-			return fmt.Errorf("step %q has no next and is not end", step.ID)
+			err := fmt.Errorf("step %q has no next and is not end", step.ID)
+			slg.Error(err, "advance: step has no next")
+			return err
 		}
 		if err := c.store.UpdateRunState(ctx, run.ID, domain.RunStateRunning, next); err != nil {
+			slg.Error(err, "advance: set next step failed", golog.F("next", next))
 			return fmt.Errorf("set next step: %w", err)
 		}
 		// loop: next iteration re-reads run with the new CurrentStep
@@ -234,11 +309,15 @@ func (c *Coordinator) Advance(ctx context.Context, runIDStr string) error {
 }
 
 func (c *Coordinator) completeRun(ctx context.Context, run domain.SagaRun, step domain.Step) error {
+	lg := c.logger(ctx).With(golog.F("run_id", run.ID.String()))
 	_ = c.store.AppendEvent(ctx, domain.NewEvent(run.ID, step.ID, 0, domain.EventStepSucceeded, "engine"))
 	_ = c.store.AppendEvent(ctx, domain.NewEvent(run.ID, "", 0, domain.EventRunSucceeded, "engine"))
 	if err := c.store.UpdateRunState(ctx, run.ID, domain.RunStateSucceeded, ""); err != nil {
+		lg.Error(err, "complete run: set succeeded state failed", golog.F("step_id", step.ID))
 		return err
 	}
+	lg.Info("saga succeeded", golog.F("workflow_id", run.WorkflowID), golog.F("end_step", step.ID),
+		golog.F("duration_ms", time.Since(run.StartedAt).Milliseconds()))
 	c.checkParentJoin(ctx, run)
 	return nil
 }
@@ -276,7 +355,7 @@ func (c *Coordinator) checkParentJoin(ctx context.Context, run domain.SagaRun) {
 	// prematurely resume the parent if it is later paused on a different step.
 	parent, err := c.store.GetRun(ctx, *run.ParentRunID)
 	if err != nil {
-		log.Warn().Err(err).Str("parent_run_id", run.ParentRunID.String()).Msg("child-join: get parent failed")
+		c.logger(ctx).Warn("child-join: get parent failed", golog.F("error", err.Error()), golog.F("parent_run_id", run.ParentRunID.String()))
 		return
 	}
 	if parent.State != domain.RunStatePaused || parent.CurrentStep != *run.ParentStepID {
@@ -285,18 +364,18 @@ func (c *Coordinator) checkParentJoin(ctx context.Context, run domain.SagaRun) {
 
 	siblings, err := c.store.ListChildrenByParent(ctx, *run.ParentRunID, *run.ParentStepID)
 	if err != nil {
-		log.Warn().Err(err).Str("run_id", run.ID.String()).Msg("child-join: list siblings failed")
+		c.logger(ctx).Warn("child-join: list siblings failed", golog.F("error", err.Error()), golog.F("run_id", run.ID.String()))
 		return
 	}
 
 	// Read the parent's workflow definition to determine the join strategy.
 	parentDef, err := c.store.GetWorkflowDefinition(ctx, parent.DefinitionID)
 	if err != nil {
-		log.Warn().Err(err).Msg("child-join: get parent def failed")
+		c.logger(ctx).Warn("child-join: get parent def failed", golog.F("error", err.Error()))
 		return
 	}
 	stepInputs := lookupStepInputs(parentDef, *run.ParentStepID)
-	if !verbs.JoinConditionMet(stepInputs, parent.Variables, siblings) {
+	if !verbs.JoinConditionMetCtx(ctx, stepInputs, parent.Variables, siblings) {
 		return
 	}
 
@@ -307,18 +386,18 @@ func (c *Coordinator) checkParentJoin(ctx context.Context, run domain.SagaRun) {
 			"_parallel." + *run.ParentStepID + ".branches": aggregated,
 		}
 		if err := c.store.UpdateRunVariables(ctx, *run.ParentRunID, merge); err != nil {
-			log.Warn().Err(err).Str("parent_run_id", run.ParentRunID.String()).Msg("child-join: write _parallel aggregate failed")
+			c.logger(ctx).Warn("child-join: write _parallel aggregate failed", golog.F("error", err.Error()), golog.F("parent_run_id", run.ParentRunID.String()))
 			// Don't return — still wake the parent. The aggregate write is best-effort.
 		}
 	}
 
 	if err := c.store.WakeFromExternal(ctx, *run.ParentRunID); err != nil {
-		log.Warn().Err(err).Str("parent_run_id", run.ParentRunID.String()).Msg("child-join: WakeFromExternal failed")
+		c.logger(ctx).Warn("child-join: WakeFromExternal failed", golog.F("error", err.Error()), golog.F("parent_run_id", run.ParentRunID.String()))
 		return
 	}
 	if c.publisher != nil {
 		if err := c.publisher.PublishSagaAdvance(ctx, run.ParentRunID.String()); err != nil {
-			log.Warn().Err(err).Str("parent_run_id", run.ParentRunID.String()).Msg("child-join: publish advance failed")
+			c.logger(ctx).Warn("child-join: publish advance failed", golog.F("error", err.Error()), golog.F("parent_run_id", run.ParentRunID.String()))
 		}
 	}
 }
@@ -354,7 +433,7 @@ func (c *Coordinator) checkJoinBarriers(ctx context.Context, run domain.SagaRun)
 	}
 	parent, err := c.store.GetRun(ctx, *run.ParentRunID)
 	if err != nil {
-		log.Warn().Err(err).Str("parent_run_id", run.ParentRunID.String()).Msg("join-barrier: get parent failed")
+		c.logger(ctx).Warn("join-barrier: get parent failed", golog.F("error", err.Error()), golog.F("parent_run_id", run.ParentRunID.String()))
 		return
 	}
 	if parent.State != domain.RunStatePaused {
@@ -362,7 +441,7 @@ func (c *Coordinator) checkJoinBarriers(ctx context.Context, run domain.SagaRun)
 	}
 	parentDef, err := c.store.GetWorkflowDefinition(ctx, parent.DefinitionID)
 	if err != nil {
-		log.Warn().Err(err).Msg("join-barrier: get parent def failed")
+		c.logger(ctx).Warn("join-barrier: get parent def failed", golog.F("error", err.Error()))
 		return
 	}
 	joinStep, ok := parentDef.StepByID(parent.CurrentStep)
@@ -372,7 +451,7 @@ func (c *Coordinator) checkJoinBarriers(ctx context.Context, run domain.SagaRun)
 
 	streamIDs, err := verbs.ResolveJoinStreams(joinStep.Inputs["streams"], parent.Variables)
 	if err != nil {
-		log.Warn().Err(err).Str("join_step", joinStep.ID).Msg("join-barrier: resolve streams failed")
+		c.logger(ctx).Warn("join-barrier: resolve streams failed", golog.F("error", err.Error()), golog.F("join_step", joinStep.ID))
 		return
 	}
 	// Only act if this terminated child belongs to a stream this join watches.
@@ -396,13 +475,13 @@ func (c *Coordinator) checkJoinBarriers(ctx context.Context, run domain.SagaRun)
 		seen[sid] = true
 		children, err := c.store.ListChildrenByParent(ctx, *run.ParentRunID, sid)
 		if err != nil {
-			log.Warn().Err(err).Str("stream", sid).Msg("join-barrier: list children failed")
+			c.logger(ctx).Warn("join-barrier: list children failed", golog.F("error", err.Error()), golog.F("stream", sid))
 			return
 		}
 		watched = append(watched, children...)
 	}
 
-	if !verbs.JoinConditionMet(joinStep.Inputs, parent.Variables, watched) {
+	if !verbs.JoinConditionMetCtx(ctx, joinStep.Inputs, parent.Variables, watched) {
 		return // barrier not yet satisfied
 	}
 
@@ -413,17 +492,17 @@ func (c *Coordinator) checkJoinBarriers(ctx context.Context, run domain.SagaRun)
 			"_join." + joinStep.ID + ".branches": aggregated,
 		}
 		if err := c.store.UpdateRunVariables(ctx, *run.ParentRunID, merge); err != nil {
-			log.Warn().Err(err).Str("parent_run_id", run.ParentRunID.String()).Msg("join-barrier: write _join aggregate failed")
+			c.logger(ctx).Warn("join-barrier: write _join aggregate failed", golog.F("error", err.Error()), golog.F("parent_run_id", run.ParentRunID.String()))
 			// Don't return; still wake the parent. The aggregate write is best-effort.
 		}
 	}
 	if err := c.store.WakeFromExternal(ctx, *run.ParentRunID); err != nil {
-		log.Warn().Err(err).Str("parent_run_id", run.ParentRunID.String()).Msg("join-barrier: WakeFromExternal failed")
+		c.logger(ctx).Warn("join-barrier: WakeFromExternal failed", golog.F("error", err.Error()), golog.F("parent_run_id", run.ParentRunID.String()))
 		return
 	}
 	if c.publisher != nil {
 		if err := c.publisher.PublishSagaAdvance(ctx, run.ParentRunID.String()); err != nil {
-			log.Warn().Err(err).Str("parent_run_id", run.ParentRunID.String()).Msg("join-barrier: publish advance failed")
+			c.logger(ctx).Warn("join-barrier: publish advance failed", golog.F("error", err.Error()), golog.F("parent_run_id", run.ParentRunID.String()))
 		}
 	}
 }

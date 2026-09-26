@@ -30,14 +30,15 @@ import (
 	"net/http"
 	"time"
 
+	golog "github.com/Bugs5382/go-log"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/rs/zerolog/log"
 
 	"github.com/Bugs5382/go-saga-orchestration/clock"
 	"github.com/Bugs5382/go-saga-orchestration/domain"
 	"github.com/Bugs5382/go-saga-orchestration/engine"
 	"github.com/Bugs5382/go-saga-orchestration/licensing"
+	"github.com/Bugs5382/go-saga-orchestration/sagalog"
 	"github.com/Bugs5382/go-saga-orchestration/store"
 )
 
@@ -175,7 +176,7 @@ func (h *TriggerHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	id, err := h.S.UpsertTrigger(r.Context(), trigger)
 	if err != nil {
-		log.Error().Err(err).Msg("upsert trigger failed")
+		sagalog.For(r.Context(), nil).Error(err, "upsert trigger failed")
 		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 		return
 	}
@@ -183,7 +184,7 @@ func (h *TriggerHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// Fetch the persisted row so we return the server-assigned fields.
 	created, err := h.S.GetTrigger(r.Context(), id)
 	if err != nil {
-		log.Error().Err(err).Str("trigger_id", id.String()).Msg("get trigger after upsert failed")
+		sagalog.For(r.Context(), nil).Error(err, "get trigger after upsert failed", golog.F("trigger_id", id.String()))
 		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 		return
 	}
@@ -207,7 +208,7 @@ func (h *TriggerHandler) Get(w http.ResponseWriter, r *http.Request) {
 			WriteError(w, http.StatusNotFound, "trigger_not_found", idStr)
 			return
 		}
-		log.Error().Err(err).Str("trigger_id", idStr).Msg("get trigger failed")
+		sagalog.For(r.Context(), nil).Error(err, "get trigger failed", golog.F("trigger_id", idStr))
 		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 		return
 	}
@@ -237,7 +238,7 @@ func (h *TriggerHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	triggers, err := h.S.ListTriggers(r.Context(), filter)
 	if err != nil {
-		log.Error().Err(err).Msg("list triggers failed")
+		sagalog.For(r.Context(), nil).Error(err, "list triggers failed")
 		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 		return
 	}
@@ -263,7 +264,7 @@ func (h *TriggerHandler) Delete(w http.ResponseWriter, r *http.Request) {
 			WriteError(w, http.StatusNotFound, "trigger_not_found", idStr)
 			return
 		}
-		log.Error().Err(err).Str("trigger_id", idStr).Msg("delete trigger failed")
+		sagalog.For(r.Context(), nil).Error(err, "delete trigger failed", golog.F("trigger_id", idStr))
 		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 		return
 	}
