@@ -56,6 +56,10 @@ func (c *Coordinator) Advance(ctx context.Context, runIDStr string) error {
 		lg.Error(err, "advance: invalid run id")
 		return fmt.Errorf("parse run id: %w", err)
 	}
+	// Serialise advances of this run. A duplicate delivery waits here and
+	// then sees whatever state the first advance left.
+	unlock := c.runLocks.lock(runIDStr)
+	defer unlock()
 	lg.Debug("advance started")
 	for {
 		// Stop between steps if the context was cancelled (e.g. Saga.Shutdown).
@@ -96,6 +100,19 @@ func (c *Coordinator) Advance(ctx context.Context, runIDStr string) error {
 				wake := "external"
 				if wakeupDue {
 					wake = "timer"
+				}
+				// A parent paused on a step that spawned children carries no
+				// await markers, so any saga.advance looks like a wakeup.
+				// Resume only once the children satisfy the join; a duplicate
+				// or early advance is acknowledged and ignored.
+				if !wakeupDue {
+					if waiting, werr := c.childrenStillRunning(ctx, run); werr != nil {
+						lg.Error(werr, "advance: check children before wake failed", golog.F("step_id", run.CurrentStep))
+						return werr
+					} else if waiting {
+						lg.Debug("advance: parent still waiting on children; ignoring wakeup", golog.F("step_id", run.CurrentStep))
+						return nil
+					}
 				}
 				lg.Debug("run waking from pause", golog.F("step_id", run.CurrentStep), golog.F("wake", wake))
 
@@ -505,4 +522,28 @@ func (c *Coordinator) checkJoinBarriers(ctx context.Context, run domain.SagaRun)
 			c.logger(ctx).Warn("join-barrier: publish advance failed", golog.F("error", err.Error()), golog.F("parent_run_id", run.ParentRunID.String()))
 		}
 	}
+}
+
+// childrenStillRunning reports whether run is paused on a step that spawned
+// child runs (parallel, foreach, sub_saga) whose join condition is not yet
+// met. Any other step returns false.
+func (c *Coordinator) childrenStillRunning(ctx context.Context, run domain.SagaRun) (bool, error) {
+	def, err := c.store.GetWorkflowDefinition(ctx, run.DefinitionID)
+	if err != nil {
+		return false, fmt.Errorf("get definition: %w", err)
+	}
+	step, ok := def.StepByID(run.CurrentStep)
+	if !ok {
+		return false, nil
+	}
+	switch step.Type {
+	case domain.StepTypeParallel, domain.StepTypeForeach, domain.StepTypeSubSaga:
+	default:
+		return false, nil
+	}
+	children, err := c.store.ListChildrenByParent(ctx, run.ID, step.ID)
+	if err != nil {
+		return false, fmt.Errorf("list children: %w", err)
+	}
+	return !verbs.JoinConditionMetCtx(ctx, step.Inputs, run.Variables, children), nil
 }
