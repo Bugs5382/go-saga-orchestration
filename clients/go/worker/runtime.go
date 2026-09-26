@@ -29,6 +29,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -253,7 +254,7 @@ func driveStream(ctx context.Context, lg golog.Logger, payload ActionPayload, h 
 
 	// 1. Start.
 	if err := stream.Send(&pb.WorkerEvent{Event: &pb.WorkerEvent_Start{Start: &pb.StartJob{
-		RunId: payload.RunID, StepId: payload.StepID, Attempt: int32(payload.Attempt),
+		RunId: payload.RunID, StepId: payload.StepID, Attempt: attemptInt32(payload.Attempt),
 	}}}); err != nil {
 		return fmt.Errorf("send start: %w", err)
 	}
@@ -331,4 +332,17 @@ func (e CodedError) Retryable() bool { return e.R }
 // Errorf returns a CodedError with the given code + retryable flag.
 func Errorf(code string, retryable bool, format string, args ...any) CodedError {
 	return CodedError{C: code, Msg: fmt.Sprintf(format, args...), R: retryable}
+}
+
+// attemptInt32 narrows an attempt count to the proto's int32 field. Counts
+// past MaxInt32 clamp to MaxInt32 and negative counts clamp to 0, so the
+// conversion can never wrap.
+func attemptInt32(n int) int32 {
+	switch {
+	case n < 0:
+		return 0
+	case n > math.MaxInt32:
+		return math.MaxInt32
+	}
+	return int32(n) // #nosec G115 -- bounded to [0, MaxInt32] above
 }

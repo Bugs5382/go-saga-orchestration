@@ -31,6 +31,7 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 
@@ -1097,5 +1098,5 @@ func hasEventType(evts []domain.SagaRunEvent, want domain.EventType) bool {
 }
 
 func frameID(prefix string, n int) string {
-	return prefix + string(rune('0'+n))
+	return prefix + strconv.Itoa(n)
 }

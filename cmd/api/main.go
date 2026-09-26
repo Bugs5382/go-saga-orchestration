@@ -31,6 +31,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	golog "github.com/Bugs5382/go-log"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -121,7 +122,7 @@ func main() {
 	streamH := api.NewSagaStreamHandler(st, pgPool)
 	workflows := api.NewWorkflowHandler(st)
 	router := api.NewRouter(st, sagas, signals, userTasks, reg, rules, triggers, streamH, workflows, actionResults)
-	srv := &http.Server{Addr: ":" + cfg.API.Port, Handler: api.LoggingMiddleware(logger)(router)}
+	srv := newHTTPServer(cfg.API.Port, api.LoggingMiddleware(logger)(router))
 
 	go func() {
 		logger.Info("http listening", golog.F("port", cfg.API.Port))
@@ -137,4 +138,17 @@ func main() {
 	shutCtx, c := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
 	defer c()
 	_ = srv.Shutdown(shutCtx)
+}
+
+// readHeaderTimeout bounds how long a client may take to send request
+// headers, so a slow client cannot hold a connection open (Slowloris).
+const readHeaderTimeout = 10 * time.Second
+
+// newHTTPServer builds the API's http.Server with the header-read timeout set.
+func newHTTPServer(port string, h http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              ":" + port,
+		Handler:           h,
+		ReadHeaderTimeout: readHeaderTimeout,
+	}
 }
