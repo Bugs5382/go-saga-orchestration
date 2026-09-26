@@ -32,7 +32,7 @@ const config: Config = {
           // The live docs are the unreleased "next" line; released snapshots
           // (0.6.0 … 0.1.0) live in versioned_docs/. Default to latest stable.
           versions: {
-            current: {label: 'v0.7.0 (next)', path: 'next', banner: 'unreleased'},
+            current: {label: 'Next 🚧', path: 'next', banner: 'unreleased'},
           },
         },
         blog: false,

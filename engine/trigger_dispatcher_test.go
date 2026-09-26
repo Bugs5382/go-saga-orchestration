@@ -105,8 +105,8 @@ func TestTriggerDispatcher_NonTriggerTopic(t *testing.T) {
 	if len(runs) != 0 {
 		t.Errorf("expected no runs, got %d", len(runs))
 	}
-	if len(pub.runs) != 0 {
-		t.Errorf("expected no publishes, got %d", len(pub.runs))
+	if len(pub.snapshot()) != 0 {
+		t.Errorf("expected no publishes, got %d", len(pub.snapshot()))
 	}
 }
 
@@ -122,8 +122,8 @@ func TestTriggerDispatcher_TriggerTopic_NoMatchingTrigger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(pub.runs) != 0 {
-		t.Errorf("expected no publishes, got %d", len(pub.runs))
+	if len(pub.snapshot()) != 0 {
+		t.Errorf("expected no publishes, got %d", len(pub.snapshot()))
 	}
 }
 
@@ -151,8 +151,8 @@ func TestTriggerDispatcher_TriggerTopic_DisabledTrigger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(pub.runs) != 0 {
-		t.Errorf("disabled trigger must not start a saga; got %d publishes", len(pub.runs))
+	if len(pub.snapshot()) != 0 {
+		t.Errorf("disabled trigger must not start a saga; got %d publishes", len(pub.snapshot()))
 	}
 }
 
@@ -184,12 +184,12 @@ func TestTriggerDispatcher_TriggerTopic_MatchingEnabledTrigger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(pub.runs) != 1 {
-		t.Fatalf("expected 1 publish, got %d", len(pub.runs))
+	if len(pub.snapshot()) != 1 {
+		t.Fatalf("expected 1 publish, got %d", len(pub.snapshot()))
 	}
 
 	// Verify the run exists in the store with the expected workflow_id and inputs.
-	runID, err := uuid.Parse(pub.runs[0])
+	runID, err := uuid.Parse(pub.snapshot()[0])
 	if err != nil {
 		t.Fatalf("published run ID is not a UUID: %v", err)
 	}
@@ -235,8 +235,8 @@ func TestTriggerDispatcher_BodyRecordTypeWinsOverTopic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(pub.runs) != 1 {
-		t.Fatalf("body record_type should win; expected 1 publish, got %d", len(pub.runs))
+	if len(pub.snapshot()) != 1 {
+		t.Fatalf("body record_type should win; expected 1 publish, got %d", len(pub.snapshot()))
 	}
 }
 
@@ -282,8 +282,8 @@ func TestTriggerDispatcher_MultipleMatchingTriggers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(pub.runs) != 2 {
-		t.Fatalf("expected 2 publishes for 2 matching triggers, got %d", len(pub.runs))
+	if len(pub.snapshot()) != 2 {
+		t.Fatalf("expected 2 publishes for 2 matching triggers, got %d", len(pub.snapshot()))
 	}
 }
 
@@ -367,8 +367,8 @@ func TestTriggerDispatcher_WorkflowNotFound_SkipsTrigger(t *testing.T) {
 		t.Fatalf("expected nil error on workflow-not-found, got: %v", err)
 	}
 	// The good trigger must still have fired.
-	if len(pub.runs) != 1 {
-		t.Fatalf("expected 1 publish (good trigger), got %d", len(pub.runs))
+	if len(pub.snapshot()) != 1 {
+		t.Fatalf("expected 1 publish (good trigger), got %d", len(pub.snapshot()))
 	}
 }
 
@@ -409,11 +409,11 @@ func TestTriggerDispatcher_Entrypoint_StartsRunAtNamedStep(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(pub.runs) != 1 {
-		t.Fatalf("expected 1 publish, got %d", len(pub.runs))
+	if len(pub.snapshot()) != 1 {
+		t.Fatalf("expected 1 publish, got %d", len(pub.snapshot()))
 	}
 
-	runID, err := uuid.Parse(pub.runs[0])
+	runID, err := uuid.Parse(pub.snapshot()[0])
 	if err != nil {
 		t.Fatalf("published run ID is not a UUID: %v", err)
 	}
@@ -462,8 +462,8 @@ func TestTriggerDispatcher_InvalidEntrypoint_SkipsTrigger(t *testing.T) {
 		t.Fatalf("expected nil error on invalid entrypoint, got: %v", err)
 	}
 	// Must not have started any run.
-	if len(pub.runs) != 0 {
-		t.Errorf("expected 0 publishes for invalid entrypoint, got %d", len(pub.runs))
+	if len(pub.snapshot()) != 0 {
+		t.Errorf("expected 0 publishes for invalid entrypoint, got %d", len(pub.snapshot()))
 	}
 }
 
@@ -492,11 +492,11 @@ func TestTriggerDispatcher_SetsTriggerID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(pub.runs) != 1 {
-		t.Fatalf("want 1 publish, got %d", len(pub.runs))
+	if len(pub.snapshot()) != 1 {
+		t.Fatalf("want 1 publish, got %d", len(pub.snapshot()))
 	}
 
-	runID, err := uuid.Parse(pub.runs[0])
+	runID, err := uuid.Parse(pub.snapshot()[0])
 	if err != nil {
 		t.Fatalf("published run ID is not a UUID: %v", err)
 	}
@@ -537,8 +537,8 @@ func TestTriggerDispatcher_RecordsTriggerFire(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(pub.runs) != 1 {
-		t.Fatalf("want 1 publish, got %d", len(pub.runs))
+	if len(pub.snapshot()) != 1 {
+		t.Fatalf("want 1 publish, got %d", len(pub.snapshot()))
 	}
 
 	fires := s.TriggerFires()

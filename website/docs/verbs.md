@@ -1,6 +1,6 @@
 # 📖 Verb Reference
 
-This page documents all 31 saga step types ("verbs") supported by the engine.
+This page documents all 32 saga step types ("verbs") supported by the engine. The default registry has a verb for 31 of them; `end` is the exception, because the coordinator finishes the run itself.
 
 ## Quick-reference table
 

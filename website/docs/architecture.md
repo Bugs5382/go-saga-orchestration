@@ -103,7 +103,7 @@ On wake it aggregates child results into `Variables._parallel.<step_id>.branches
 
 ## 3. The verb catalog
 
-All 31 step types live in `engine/verbs/` (30 in the registry plus `end`, which is handled inline by the coordinator). They implement `Handler.Execute(ctx, run, step) (map[string]any, error)`. The returned map is merged into `run.Variables`; returning `ErrSagaPaused` suspends the run; returning `ErrSagaCancelled` transitions the run to `cancelled` (terminal); any other error fails the step (subject to try_catch). The registry (`verbs.Default`, `registry.go`) maps each `StepType` to a handler plus a license group.
+The engine has 32 step types. `engine/verbs/` holds a verb for each of them, and the default registry wires 31; `end` is the exception, because the coordinator finishes the run itself. They implement `Handler.Execute(ctx, run, step) (map[string]any, error)`. The returned map is merged into `run.Variables`; returning `ErrSagaPaused` suspends the run; returning `ErrSagaCancelled` transitions the run to `cancelled` (terminal); any other error fails the step (subject to try_catch). The registry (`verbs.Default`, `registry.go`) maps each `StepType` to a handler plus a license group.
 
 | Verb | Purpose | Key fields / notes |
 |------|---------|--------------------|
@@ -227,7 +227,7 @@ The engine is structured as an embeddable library. The top-level packages form t
 | `saga` | Facade: `saga.InMemory()` and `saga.New(saga.Options{...})` return `*saga.Saga` — the entry point for embedding the engine. |
 | `domain` | Core types: `WorkflowDefinition`, `SagaRun`, `Step`, `RuleDefinition`, `SagaSignal`, `UserTask`, `SagaTrigger`, etc. |
 | `engine` | `Coordinator`, `Timer`, `Advance` — the saga execution engine. |
-| `engine/verbs` | The 31 built-in step implementations (30 in the registry + `end`) plus `verbs.HandlerFunc` for custom verbs. |
+| `engine/verbs` | A verb for every step type except `end` (the coordinator finishes the run itself) plus `verbs.HandlerFunc` for custom verbs. |
 | `store` | The `Store` interface (see below) and `ErrNotFound`. |
 | `store/memory` | In-memory `Store` implementation (tests and embedded in-process use). |
 | `store/postgres` | Production Postgres `Store` + embedded SQL migrations. |

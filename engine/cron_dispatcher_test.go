@@ -59,8 +59,8 @@ func TestCronDispatcher_FiresDueTrigger(t *testing.T) {
 	if err := d.fireDue(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(pub.runs) != 1 {
-		t.Fatalf("want 1 run advanced, got %d", len(pub.runs))
+	if len(pub.snapshot()) != 1 {
+		t.Fatalf("want 1 run advanced, got %d", len(pub.snapshot()))
 	}
 }
 
@@ -73,8 +73,8 @@ func TestCronDispatcher_SkipsWhenUnlicensed(t *testing.T) {
 	if err := d.fireDue(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(pub.runs) != 0 {
-		t.Fatalf("unlicensed tenant must not fire, got %d", len(pub.runs))
+	if len(pub.snapshot()) != 0 {
+		t.Fatalf("unlicensed tenant must not fire, got %d", len(pub.snapshot()))
 	}
 }
 
@@ -96,11 +96,11 @@ func TestCronDispatcher_SetsTriggerID(t *testing.T) {
 	if err := d.fireDue(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if len(pub.runs) != 1 {
-		t.Fatalf("want 1 run, got %d", len(pub.runs))
+	if len(pub.snapshot()) != 1 {
+		t.Fatalf("want 1 run, got %d", len(pub.snapshot()))
 	}
 
-	runID, err := parseUUID(t, pub.runs[0])
+	runID, err := parseUUID(t, pub.snapshot()[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,8 +127,8 @@ func TestCronDispatcher_RecordsTriggerFire(t *testing.T) {
 	if err := d.fireDue(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if len(pub.runs) != 1 {
-		t.Fatalf("want 1 run, got %d", len(pub.runs))
+	if len(pub.snapshot()) != 1 {
+		t.Fatalf("want 1 run, got %d", len(pub.snapshot()))
 	}
 
 	fires := s.TriggerFires()
@@ -176,8 +176,8 @@ func TestCronDispatcher_FiresDueIntervalTrigger(t *testing.T) {
 	if err := d.fireDue(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(pub.runs) != 1 {
-		t.Fatalf("want 1 run advanced for interval trigger, got %d", len(pub.runs))
+	if len(pub.snapshot()) != 1 {
+		t.Fatalf("want 1 run advanced for interval trigger, got %d", len(pub.snapshot()))
 	}
 }
 
@@ -206,7 +206,7 @@ func TestCronDispatcher_IntervalTrigger_SkipsWhenUnlicensed(t *testing.T) {
 	if err := d.fireDue(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(pub.runs) != 0 {
-		t.Fatalf("unlicensed interval trigger must not fire, got %d", len(pub.runs))
+	if len(pub.snapshot()) != 0 {
+		t.Fatalf("unlicensed interval trigger must not fire, got %d", len(pub.snapshot()))
 	}
 }

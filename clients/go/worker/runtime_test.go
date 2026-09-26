@@ -27,11 +27,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -79,21 +81,34 @@ func TestRegisterWithOrchestrator_NonOKReturnsError(t *testing.T) {
 
 func TestConsumeLoop_FeedsDispatch(t *testing.T) {
 	ch := make(chan amqp.Delivery, 3)
-	var bodies []string
+	// dispatch runs on the loop's goroutine; hand each body back over a
+	// channel instead of sharing a slice.
+	got := make(chan string, 3)
 	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
 	go func() {
-		_ = consumeLoop(ctx, ch, func(_ context.Context, d amqp.Delivery) {
-			bodies = append(bodies, string(d.Body))
+		done <- consumeLoop(ctx, ch, func(_ context.Context, d amqp.Delivery) {
+			got <- string(d.Body)
 		})
 	}()
 	ch <- amqp.Delivery{Body: []byte("one")}
 	ch <- amqp.Delivery{Body: []byte("two")}
-	// brief wait
+	var bodies []string
+	timeout := time.After(2 * time.Second)
 	for len(bodies) < 2 {
+		select {
+		case b := <-got:
+			bodies = append(bodies, b)
+		case <-timeout:
+			t.Fatalf("got %v after 2s, want 2 bodies", bodies)
+		}
 	}
 	cancel()
-	if len(bodies) < 2 {
-		t.Errorf("got %d, want 2", len(bodies))
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Errorf("consumeLoop returned %v, want context.Canceled", err)
+	}
+	if bodies[0] != "one" || bodies[1] != "two" {
+		t.Errorf("bodies = %v, want [one two]", bodies)
 	}
 }
 

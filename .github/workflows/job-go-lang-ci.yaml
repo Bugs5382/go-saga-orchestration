@@ -39,7 +39,7 @@ jobs:
       - name: Build
         run: go build ./...
       - name: Test
-        run: go test ./... -cover
+        run: go test -race ./... -cover
   lint:
     name: 🔍 GolangCI
     runs-on: ubuntu-latest

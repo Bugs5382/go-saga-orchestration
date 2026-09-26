@@ -25,6 +25,7 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -35,11 +36,25 @@ import (
 	"github.com/Bugs5382/go-saga-orchestration/store/memory"
 )
 
-type recordingPublisher struct{ runs []string }
+// recordingPublisher records published run IDs. Timer and dispatcher code
+// publishes from its own goroutine while tests poll, so access goes through
+// the mutex; read with snapshot.
+type recordingPublisher struct {
+	mu   sync.Mutex
+	runs []string
+}
 
 func (r *recordingPublisher) PublishSagaAdvance(_ context.Context, runID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.runs = append(r.runs, runID)
 	return nil
+}
+
+func (r *recordingPublisher) snapshot() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.runs...)
 }
 
 func TestTimer_PublishesWhenWakeupDue(t *testing.T) {
@@ -68,7 +83,7 @@ func TestTimer_PublishesWhenWakeupDue(t *testing.T) {
 	// Wait for the publish to register (allow a brief moment for the goroutine to loop).
 	deadline := time.Now().Add(500 * time.Millisecond)
 	for time.Now().Before(deadline) {
-		if len(pub.runs) >= 1 {
+		if len(pub.snapshot()) >= 1 {
 			break
 		}
 		time.Sleep(5 * time.Millisecond)
@@ -76,11 +91,11 @@ func TestTimer_PublishesWhenWakeupDue(t *testing.T) {
 	cancel()
 	<-done
 
-	if len(pub.runs) < 1 {
-		t.Fatalf("expected at least 1 publish, got %d", len(pub.runs))
+	if len(pub.snapshot()) < 1 {
+		t.Fatalf("expected at least 1 publish, got %d", len(pub.snapshot()))
 	}
-	if pub.runs[0] != r.ID.String() {
-		t.Errorf("published runID = %s, want %s", pub.runs[0], r.ID)
+	if pub.snapshot()[0] != r.ID.String() {
+		t.Errorf("published runID = %s, want %s", pub.snapshot()[0], r.ID)
 	}
 }
 
@@ -99,7 +114,7 @@ func TestTimer_NoPublishWhenNoDueWakeups(t *testing.T) {
 	cancel()
 	<-done
 
-	if len(pub.runs) != 0 {
-		t.Errorf("expected 0 publishes, got %d", len(pub.runs))
+	if len(pub.snapshot()) != 0 {
+		t.Errorf("expected 0 publishes, got %d", len(pub.snapshot()))
 	}
 }

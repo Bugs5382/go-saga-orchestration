@@ -7,7 +7,7 @@ hook-enforced rules). Keep this file current when the build, layout, or public A
 
 A standalone, solution-agnostic saga orchestrator and synchronous CEL rule evaluator. It ships as a
 Go library you embed in-process, and as two reference service binaries (`cmd/api`, `cmd/engine`)
-backed by Postgres + RabbitMQ. The engine executes workflow definitions made of 31 step types
+backed by Postgres + RabbitMQ. The engine executes workflow definitions made of 32 step types
 ("verbs"); CEL expressions drive conditions, transforms, filters, and routing.
 
 The one thing to understand before changing the engine: a workflow is a `domain.WorkflowDefinition`
@@ -37,7 +37,7 @@ bundle of every page at `/llms-full.txt` (with an index at `/llms.txt`).
 
 - `saga/` - public facade (`InMemory`, `New`, `*saga.Saga`).
 - `domain/` - core types (`WorkflowDefinition`, `SagaRun`, `Step`, `RuleDefinition`).
-- `engine/`, `engine/verbs/` - coordinator + the 31 verb implementations + `verbs.HandlerFunc`.
+- `engine/`, `engine/verbs/` - coordinator + a verb for every step type except `end` (the coordinator finishes the run itself) + `verbs.HandlerFunc`.
 - `store/`, `store/memory`, `store/postgres` - `Store` interface, in-memory impl, Postgres impl + migrations.
 - `api/` - REST handlers, router, and `api/openapi.yaml`.
 - `internal/{cel,rules,mq,grpc,config,logging}` - infrastructure (not for direct import).

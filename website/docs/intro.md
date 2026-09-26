@@ -9,7 +9,7 @@ title: Introduction
 A standalone, solution-agnostic **saga orchestrator + synchronous CEL rule evaluator** you can
 embed as a Go library or run as a two-binary service.
 
-- **31 saga step types** — transforms, HTTP/webhooks, timers, signals, events, parallel fan-out,
+- **32 saga step types** — transforms, HTTP/webhooks, timers, signals, events, parallel fan-out,
   foreach, loops, try/catch, human tasks, sub-sagas, and more.
 - **Embed or deploy** — run in-process with zero infrastructure, or deploy two Docker-friendly
   binaries backed by Postgres + RabbitMQ.
