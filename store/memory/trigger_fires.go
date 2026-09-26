@@ -62,7 +62,7 @@ func (s *Store) RecordTriggerFire(_ context.Context, triggerID uuid.UUID, workfl
 		TriggerID:      triggerID,
 		WorkflowID:     workflowID,
 		FiredAt:        time.Now().UTC(),
-		ResultingRunID: runID,
+		ResultingRunID: clonePtr(runID),
 		Error:          fireErr,
 	}
 	s.mu.Lock()
@@ -77,6 +77,8 @@ func (s *Store) TriggerFires() []domain.TriggerFireRow {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]domain.TriggerFireRow, len(s.triggerFires))
-	copy(out, s.triggerFires)
+	for i, row := range s.triggerFires {
+		out[i] = cloneTriggerFire(row)
+	}
 	return out
 }

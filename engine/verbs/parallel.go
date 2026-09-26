@@ -118,7 +118,9 @@ func (v ParallelVerb) Execute(ctx context.Context, run domain.SagaRun, step doma
 		return nil, fmt.Errorf("parallel: join_strategy %q not supported (use 'all' or 'quorum')", joinStrategy)
 	}
 
-	// For each branch, build a synthetic WorkflowDefinition and spawn a child run.
+	// For each branch, build a synthetic WorkflowDefinition and spawn a child
+	// run. Children are published only after the parent is paused (below).
+	childIDs := make([]string, 0, len(branchesAny))
 	for i, b := range branchesAny {
 		bm, ok := b.(map[string]any)
 		if !ok {
@@ -162,12 +164,7 @@ func (v ParallelVerb) Execute(ctx context.Context, run domain.SagaRun, step doma
 		if err != nil {
 			return nil, fmt.Errorf("parallel: spawn branch %d: %w", i, err)
 		}
-		// Publish saga.advance to start the child immediately.
-		if v.Publisher != nil {
-			if err := v.Publisher.PublishSagaAdvance(ctx, childID.String()); err != nil {
-				return nil, fmt.Errorf("parallel: publish branch %d: %w", i, err)
-			}
-		}
+		childIDs = append(childIDs, childID.String())
 	}
 
 	// Mark parent as paused awaiting children. Use step.ID (not run.CurrentStep)
@@ -179,8 +176,19 @@ func (v ParallelVerb) Execute(ctx context.Context, run domain.SagaRun, step doma
 	// the parent once all siblings terminate. Advance detects "paused + no pending
 	// awaits + wakeup_at==nil" as an external wake, emits step.succeeded, and
 	// advances CurrentStep to step.Next.
+	// Pause the parent BEFORE publishing any child. A child can finish before
+	// this verb returns (the in-process publisher, or a fast worker), and its
+	// completion hook only wakes a parent that is already paused on this
+	// step. Publishing first loses that wakeup and strands the parent.
 	if err := v.S.UpdateRunState(ctx, run.ID, domain.RunStatePaused, step.ID); err != nil {
 		return nil, fmt.Errorf("parallel: pause parent: %w", err)
+	}
+	if v.Publisher != nil {
+		for i, id := range childIDs {
+			if err := v.Publisher.PublishSagaAdvance(ctx, id); err != nil {
+				return nil, fmt.Errorf("parallel: publish branch %d: %w", i, err)
+			}
+		}
 	}
 	return nil, ErrSagaPaused
 }

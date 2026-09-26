@@ -75,17 +75,20 @@ func (v SubSagaVerb) Execute(ctx context.Context, run domain.SagaRun, step domai
 	if err != nil {
 		return nil, fmt.Errorf("sub_saga: spawn: %w", err)
 	}
+	// Pause the parent; it will be woken by checkParentJoin once the child
+	// reaches a terminal state. We call UpdateRunState here (same as parallel)
+	// so CurrentStep is already set to step.ID when the parent is paused.
+	// Pause the parent BEFORE publishing any child. A child can finish before
+	// this verb returns (the in-process publisher, or a fast worker), and its
+	// completion hook only wakes a parent that is already paused on this
+	// step. Publishing first loses that wakeup and strands the parent.
+	if err := v.S.UpdateRunState(ctx, run.ID, domain.RunStatePaused, step.ID); err != nil {
+		return nil, fmt.Errorf("sub_saga: pause parent: %w", err)
+	}
 	if v.Publisher != nil {
 		if err := v.Publisher.PublishSagaAdvance(ctx, childID.String()); err != nil {
 			return nil, fmt.Errorf("sub_saga: publish: %w", err)
 		}
-	}
-
-	// Pause the parent; it will be woken by checkParentJoin once the child
-	// reaches a terminal state. We call UpdateRunState here (same as parallel)
-	// so CurrentStep is already set to step.ID when the parent is paused.
-	if err := v.S.UpdateRunState(ctx, run.ID, domain.RunStatePaused, step.ID); err != nil {
-		return nil, fmt.Errorf("sub_saga: pause parent: %w", err)
 	}
 	return nil, ErrSagaPaused
 }

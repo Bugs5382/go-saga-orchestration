@@ -99,6 +99,7 @@ func (v ForeachVerb) Execute(ctx context.Context, run domain.SagaRun, step domai
 		return nil, fmt.Errorf("foreach: parse body: %w", err)
 	}
 
+	childIDs := make([]string, 0, len(items)) // published after the parent pauses
 	for i, item := range items {
 		branchKey := fmt.Sprintf("i%d", i)
 		branchDef := domain.WorkflowDefinition{
@@ -122,18 +123,25 @@ func (v ForeachVerb) Execute(ctx context.Context, run domain.SagaRun, step domai
 		if err != nil {
 			return nil, fmt.Errorf("foreach: spawn iter %d: %w", i, err)
 		}
-		if v.Publisher != nil {
-			if err := v.Publisher.PublishSagaAdvance(ctx, childID.String()); err != nil {
-				return nil, fmt.Errorf("foreach: publish iter %d: %w", i, err)
-			}
-		}
+		childIDs = append(childIDs, childID.String())
 	}
 
 	// Mark parent as paused awaiting child iterations. Same pattern as ParallelVerb:
 	// the child-terminal hook in coordinator/advance.go calls WakeFromExternal once
 	// all siblings terminate, then PublishSagaAdvance(parentID) resumes the parent.
+	// Pause the parent BEFORE publishing any child. A child can finish before
+	// this verb returns (the in-process publisher, or a fast worker), and its
+	// completion hook only wakes a parent that is already paused on this
+	// step. Publishing first loses that wakeup and strands the parent.
 	if err := v.S.UpdateRunState(ctx, run.ID, domain.RunStatePaused, step.ID); err != nil {
 		return nil, fmt.Errorf("foreach: pause parent: %w", err)
+	}
+	if v.Publisher != nil {
+		for i, id := range childIDs {
+			if err := v.Publisher.PublishSagaAdvance(ctx, id); err != nil {
+				return nil, fmt.Errorf("foreach: publish iter %d: %w", i, err)
+			}
+		}
 	}
 	return nil, ErrSagaPaused
 }

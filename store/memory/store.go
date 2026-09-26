@@ -81,7 +81,7 @@ func (s *Store) UpsertWorkflowDefinition(_ context.Context, def domain.WorkflowD
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	id := uuid.New()
-	s.defs[id] = def
+	s.defs[id] = cloneDef(def)
 	s.defsByName[def.ID] = append(s.defsByName[def.ID], id)
 	return id, nil
 }
@@ -95,7 +95,7 @@ func (s *Store) GetWorkflowDefinition(_ context.Context, id uuid.UUID) (domain.W
 	if !ok {
 		return domain.WorkflowDefinition{}, store.ErrNotFound{Entity: "workflow_definition", ID: id.String()}
 	}
-	return d, nil
+	return cloneDef(d), nil
 }
 
 // GetPublishedWorkflowByID returns the newest published version of workflowID,
@@ -108,12 +108,12 @@ func (s *Store) GetPublishedWorkflowByID(_ context.Context, workflowID string, _
 	for i := len(ids) - 1; i >= 0; i-- {
 		d := s.defs[ids[i]]
 		if d.Published {
-			return d, nil
+			return cloneDef(d), nil
 		}
 	}
 	// Fall back to most recent if none published (test convenience).
 	if len(ids) > 0 {
-		return s.defs[ids[len(ids)-1]], nil
+		return cloneDef(s.defs[ids[len(ids)-1]]), nil
 	}
 	return domain.WorkflowDefinition{}, store.ErrNotFound{Entity: "workflow_definition", ID: workflowID}
 }
@@ -165,14 +165,14 @@ func (s *Store) ListWorkflowDefinitions(_ context.Context, filter store.Definiti
 	if end > len(matched) {
 		end = len(matched)
 	}
-	return matched[offset:end], nil
+	return cloneDefs(matched[offset:end]), nil
 }
 
 // CreateRun stores run keyed by its ID.
 func (s *Store) CreateRun(_ context.Context, run domain.SagaRun) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.runs[run.ID] = run
+	s.runs[run.ID] = cloneRun(run)
 	return nil
 }
 
@@ -184,7 +184,7 @@ func (s *Store) GetRun(_ context.Context, id uuid.UUID) (domain.SagaRun, error) 
 	if !ok {
 		return domain.SagaRun{}, store.ErrNotFound{Entity: "saga_run", ID: id.String()}
 	}
-	return r, nil
+	return cloneRun(r), nil
 }
 
 // UpdateRunState sets the run's state and current step, or returns ErrNotFound.
@@ -280,7 +280,7 @@ func (s *Store) MarkRunFailed(_ context.Context, runID uuid.UUID, currentStep, l
 func (s *Store) AppendEvent(_ context.Context, evt domain.SagaRunEvent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.events[evt.RunID] = append(s.events[evt.RunID], evt)
+	s.events[evt.RunID] = append(s.events[evt.RunID], cloneEvent(evt))
 	return nil
 }
 
@@ -288,8 +288,10 @@ func (s *Store) AppendEvent(_ context.Context, evt domain.SagaRunEvent) error {
 func (s *Store) ListEventsByRun(_ context.Context, runID uuid.UUID) ([]domain.SagaRunEvent, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make([]domain.SagaRunEvent, len(s.events[runID]))
-	copy(out, s.events[runID])
+	out := cloneEvents(s.events[runID])
+	if out == nil {
+		out = []domain.SagaRunEvent{}
+	}
 	return out, nil
 }
 
@@ -300,7 +302,7 @@ func (s *Store) GetEventByID(_ context.Context, id uuid.UUID) (domain.SagaRunEve
 	for _, evts := range s.events {
 		for _, e := range evts {
 			if e.ID == id {
-				return e, nil
+				return cloneEvent(e), nil
 			}
 		}
 	}
@@ -334,7 +336,7 @@ func (s *Store) UpsertRuleDefinition(_ context.Context, def domain.RuleDefinitio
 		}
 		s.rulesByID[existing.RuleID] = filtered
 	}
-	s.rules[id] = def
+	s.rules[id] = cloneRule(def)
 	s.rulesByID[def.RuleID] = append(s.rulesByID[def.RuleID], id)
 	return id, nil
 }
@@ -348,11 +350,11 @@ func (s *Store) GetPublishedRuleByID(_ context.Context, ruleID string, _ *uuid.U
 	for i := len(ids) - 1; i >= 0; i-- {
 		r := s.rules[ids[i]]
 		if r.Published {
-			return r, nil
+			return cloneRule(r), nil
 		}
 	}
 	if len(ids) > 0 {
-		return s.rules[ids[len(ids)-1]], nil
+		return cloneRule(s.rules[ids[len(ids)-1]]), nil
 	}
 	return domain.RuleDefinition{}, store.ErrNotFound{Entity: "rule_definition", ID: ruleID}
 }
@@ -370,7 +372,7 @@ func (s *Store) UpdateRunVariables(_ context.Context, runID uuid.UUID, merge map
 		r.Variables = map[string]any{}
 	}
 	for k, v := range merge {
-		applyDottedKey(r.Variables, k, v)
+		applyDottedKey(r.Variables, k, cloneAny(v))
 	}
 	s.runs[runID] = r
 	return nil
@@ -482,7 +484,7 @@ func (s *Store) FindRunsByAwaitedEvent(_ context.Context, topic string) ([]domai
 	out := []domain.SagaRun{}
 	for _, r := range s.runs {
 		if r.State == domain.RunStatePaused && r.AwaitedEventTopic != nil && *r.AwaitedEventTopic == topic {
-			out = append(out, r)
+			out = append(out, cloneRun(r))
 		}
 	}
 	return out, nil
@@ -546,7 +548,7 @@ func (s *Store) AppendSignal(_ context.Context, sig domain.SagaSignal) error {
 	if s.signals == nil {
 		s.signals = map[uuid.UUID][]domain.SagaSignal{}
 	}
-	s.signals[sig.RunID] = append(s.signals[sig.RunID], sig)
+	s.signals[sig.RunID] = append(s.signals[sig.RunID], cloneSignal(sig))
 	return nil
 }
 
@@ -562,11 +564,11 @@ func (s *Store) SpawnChildRunAt(_ context.Context, parentID uuid.UUID, parentSte
 		defStoredID = ids[len(ids)-1]
 	} else {
 		defStoredID = uuid.New()
-		s.defs[defStoredID] = def
+		s.defs[defStoredID] = cloneDef(def)
 		s.defsByName[def.ID] = append(s.defsByName[def.ID], defStoredID)
 	}
 
-	child := domain.NewSagaRun(def.ID, defStoredID, nil, inputs)
+	child := domain.NewSagaRun(def.ID, defStoredID, nil, cloneMap(inputs))
 	if startStep != "" {
 		child.CurrentStep = startStep
 	}
@@ -595,7 +597,7 @@ func (s *Store) ListChildrenByParent(_ context.Context, parentID uuid.UUID, pare
 	for _, r := range s.runs {
 		if r.ParentRunID != nil && *r.ParentRunID == parentID &&
 			r.ParentStepID != nil && *r.ParentStepID == parentStepID {
-			out = append(out, r)
+			out = append(out, cloneRun(r))
 		}
 	}
 	return out, nil
@@ -614,7 +616,7 @@ func (s *Store) PushTryCatch(_ context.Context, runID uuid.UUID, frame domain.Tr
 	if len(r.TryCatchStack) >= maxDepth {
 		return fmt.Errorf("try_catch max nesting depth %d exceeded for run %s", maxDepth, runID)
 	}
-	r.TryCatchStack = append(r.TryCatchStack, frame)
+	r.TryCatchStack = append(append([]domain.TryCatchFrame(nil), r.TryCatchStack...), frame)
 	s.runs[runID] = r
 	return nil
 }
@@ -641,7 +643,7 @@ func (s *Store) PopTryCatch(_ context.Context, runID uuid.UUID) (domain.TryCatch
 func (s *Store) CreateUserTask(_ context.Context, task domain.UserTask) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.userTasks[task.ID] = task
+	s.userTasks[task.ID] = cloneUserTask(task)
 	return nil
 }
 
@@ -653,7 +655,7 @@ func (s *Store) GetUserTask(_ context.Context, taskID uuid.UUID) (domain.UserTas
 	if !ok {
 		return domain.UserTask{}, store.ErrNotFound{Entity: "user_task", ID: taskID.String()}
 	}
-	return t, nil
+	return cloneUserTask(t), nil
 }
 
 // ListUserTasksByRun returns all user tasks whose RunID matches runID.
@@ -665,7 +667,7 @@ func (s *Store) ListUserTasksByRun(_ context.Context, runID uuid.UUID) ([]domain
 	out := []domain.UserTask{}
 	for _, t := range s.userTasks {
 		if t.RunID == runID {
-			out = append(out, t)
+			out = append(out, cloneUserTask(t))
 		}
 	}
 	// Sort by ID bytes so the ordering is stable and deterministic.
@@ -701,7 +703,7 @@ func (s *Store) SubmitUserTask(_ context.Context, taskID uuid.UUID, submittedBy 
 	now := time.Now().UTC()
 	t.SubmittedAt = &now
 	t.SubmittedBy = submittedBy
-	t.Result = result
+	t.Result = cloneMap(result)
 	s.userTasks[taskID] = t
 	return nil
 }
@@ -724,7 +726,7 @@ func (s *Store) UpsertActionRegistration(_ context.Context, reg domain.ActionReg
 	if reg.RegisteredAt.IsZero() {
 		reg.RegisteredAt = time.Now().UTC()
 	}
-	s.actions[key][reg.Version] = reg
+	s.actions[key][reg.Version] = cloneAction(reg)
 	return nil
 }
 
@@ -744,7 +746,7 @@ func (s *Store) ListActions(_ context.Context, filter store.ActionFilter) ([]dom
 			if filter.Search != "" && !strings.Contains(reg.ActionName, filter.Search) {
 				continue
 			}
-			out = append(out, reg)
+			out = append(out, cloneAction(reg))
 		}
 	}
 	return out, nil
@@ -756,7 +758,7 @@ func (s *Store) GetAction(_ context.Context, service, name string, version int) 
 	defer s.mu.RUnlock()
 	if byVer, ok := s.actions[service+"."+name]; ok {
 		if reg, ok := byVer[version]; ok {
-			return reg, nil
+			return cloneAction(reg), nil
 		}
 	}
 	return domain.ActionRegistration{}, store.ErrNotFound{
@@ -808,7 +810,7 @@ func (s *Store) CompleteAction(ctx context.Context, runID uuid.UUID, attempt int
 		r.Variables = map[string]any{}
 	}
 	for k, v := range result {
-		r.Variables[k] = v
+		r.Variables[k] = cloneAny(v)
 	}
 	s.runs[runID] = r
 	s.mu.Unlock()
@@ -887,7 +889,7 @@ func (s *Store) ListRuns(_ context.Context, filter store.RunFilter) ([]domain.Sa
 	if end > len(matched) {
 		end = len(matched)
 	}
-	return matched[offset:end], nil
+	return cloneRuns(matched[offset:end]), nil
 }
 
 // CountRuns returns the total count matching filter (ignoring Limit/Offset).

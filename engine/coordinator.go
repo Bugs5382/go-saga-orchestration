@@ -60,6 +60,7 @@ type Coordinator struct {
 	secrets   secrets.Resolver
 	licensing licensing.Resolver
 	log       golog.Logger // nil = silent; see SetLogger
+	runLocks  runLocks     // one Advance per run at a time
 }
 
 // SetLogger sets the logger the coordinator writes to. A logger carried on
