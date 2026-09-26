@@ -28,14 +28,15 @@ import (
 	"errors"
 	"testing"
 
+	golog "github.com/Bugs5382/go-log"
 	"github.com/google/uuid"
-	"github.com/rs/zerolog"
 
 	"github.com/Bugs5382/go-saga-orchestration/domain"
+	"github.com/Bugs5382/go-saga-orchestration/sagalog"
 	"github.com/Bugs5382/go-saga-orchestration/store/memory"
 )
 
-func discardLogger() zerolog.Logger { return zerolog.Nop() }
+func discardLogger() golog.Logger { return sagalog.Nop() }
 
 // fakeProvider returns a fixed map (or error) for testing the merge loop.
 type fakeProvider struct {

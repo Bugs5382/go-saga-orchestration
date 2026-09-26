@@ -94,7 +94,7 @@ func (v JoinVerb) Execute(ctx context.Context, run domain.SagaRun, step domain.S
 	}
 
 	// Barrier already satisfied? Aggregate and continue without pausing.
-	if JoinConditionMet(step.Inputs, run.Variables, watched) {
+	if JoinConditionMetCtx(ctx, step.Inputs, run.Variables, watched) {
 		aggregated := AggregateJoinResults(ctx, v.S, watched)
 		return map[string]any{
 			"_join." + step.ID + ".branches": aggregated,

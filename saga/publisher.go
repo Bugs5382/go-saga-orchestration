@@ -26,11 +26,11 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 import (
 	"context"
 	"fmt"
+	golog "github.com/Bugs5382/go-log"
 	"sync"
 
-	"github.com/rs/zerolog"
-
 	"github.com/Bugs5382/go-saga-orchestration/engine"
+	"github.com/Bugs5382/go-saga-orchestration/sagalog"
 )
 
 // InProcessPublisher satisfies engine.Publisher (and verbs.ActionDispatchPublisher)
@@ -42,7 +42,7 @@ type InProcessPublisher struct {
 	coord *engine.Coordinator
 	ctx   context.Context // the Saga's derived context; cancelled by Saga.Shutdown
 	wg    *sync.WaitGroup // tracks in-flight background advances for draining
-	log   zerolog.Logger
+	log   golog.Logger    // nil = silent
 }
 
 // PublishSagaAdvance advances the run in a background goroutine.
@@ -58,13 +58,18 @@ func (p *InProcessPublisher) PublishSagaAdvance(_ context.Context, runID string)
 	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()
+		lg := sagalog.For(p.ctx, p.log).With(golog.F("run_id", runID))
+		lg.Debug("saga: in-process background advance started")
 		if err := p.coord.Advance(p.ctx, runID); err != nil {
-			p.log.Error().Err(err).Str("run_id", runID).Msg("saga: in-process background advance failed")
+			lg.Error(err, "saga: in-process background advance failed")
+			return
 		}
+		lg.Debug("saga: in-process background advance finished")
 	}()
 	return nil
 }
 
-func (p *InProcessPublisher) PublishActionDispatch(_ context.Context, _ string, _ []byte) error {
+func (p *InProcessPublisher) PublishActionDispatch(ctx context.Context, _ string, _ []byte) error {
+	sagalog.For(ctx, p.log).Warn("saga: action dispatch attempted with the in-process publisher; unsupported")
 	return fmt.Errorf("saga: in-process publisher cannot dispatch actions; run a worker or use the service mode")
 }

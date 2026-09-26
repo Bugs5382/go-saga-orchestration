@@ -35,12 +35,13 @@ import (
 	"net/http"
 	"strings"
 
+	golog "github.com/Bugs5382/go-log"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/rs/zerolog/log"
 
+	"github.com/Bugs5382/go-saga-orchestration/sagalog"
 	"github.com/Bugs5382/go-saga-orchestration/store"
 )
 
@@ -111,7 +112,7 @@ func (h *SagaStreamHandler) Stream(w http.ResponseWriter, r *http.Request) {
 			WriteError(w, http.StatusNotFound, CodeNotFound, "run not found")
 			return
 		}
-		log.Error().Err(err).Str("run_id", runID.String()).Msg("stream: get run failed")
+		sagalog.For(r.Context(), nil).Error(err, "stream: get run failed", golog.F("run_id", runID.String()))
 		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 		return
 	}
@@ -143,14 +144,14 @@ func (h *SagaStreamHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	// 5. LISTEN on per-run channel.
 	pgConn, err := h.Pool.Acquire(r.Context())
 	if err != nil {
-		log.Warn().Err(err).Msg("stream: acquire pg conn")
+		sagalog.For(r.Context(), nil).Warn("stream: acquire pg conn", golog.F("error", err.Error()))
 		return
 	}
 	defer pgConn.Release()
 
 	channel := "saga_event_" + strings.ReplaceAll(runID.String(), "-", "")
 	if _, err := pgConn.Exec(r.Context(), "LISTEN "+quoteIdent(channel)); err != nil {
-		log.Warn().Err(err).Str("channel", channel).Msg("stream: LISTEN failed")
+		sagalog.For(r.Context(), nil).Warn("stream: LISTEN failed", golog.F("error", err.Error()), golog.F("channel", channel))
 		return
 	}
 
@@ -161,7 +162,7 @@ func (h *SagaStreamHandler) Stream(w http.ResponseWriter, r *http.Request) {
 			if errors.Is(err, context.Canceled) {
 				return
 			}
-			log.Warn().Err(err).Msg("stream: wait notify")
+			sagalog.For(r.Context(), nil).Warn("stream: wait notify", golog.F("error", err.Error()))
 			return
 		}
 		eventID, err := uuid.Parse(notify.Payload)

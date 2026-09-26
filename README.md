@@ -114,6 +114,59 @@ All configuration is via environment variables (`internal/config/config.go`):
 | `STORE_TYPE` | `postgres` | both | Store backend: `postgres` (default) \| `redis` \| `valkey` \| `memory` — see [Store backends](https://bugs5382.github.io/go-saga-orchestration/docs/stores) |
 | `REDIS_URL` | _(empty)_ | both | Redis/Valkey connection URL (required when `STORE_TYPE` is `redis` or `valkey`) |
 | `REDIS_RUN_TTL` | `0s` | both | Go duration; auto-expire terminal-run keys after this window (default `0s` = keep forever) |
+| `LOG_LEVEL` | `info` | both | Minimum log level — see [Logging](#-logging) |
+| `LOG_FORMAT` | `json` | both | Log rendering: `json`, `console`, or `both` — see [Logging](#-logging) |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | _(empty)_ | both | OTLP gRPC collector as a bare `host:port`; empty means no exporter — see [Tracing and metrics](#-tracing-and-metrics) |
+
+---
+
+## 🪵 Logging
+
+The engine logs through [go-log](https://github.com/Bugs5382/go-log), and **only to a logger you hand it**. Embed the library without one and it writes nothing: no stderr noise in your tests or CLIs.
+
+```go
+import golog "github.com/Bugs5382/go-log"
+
+sc, err := saga.New(saga.Options{
+    Store:  store,
+    Logger: golog.NewLogger("checkout-service"), // honours LOG_LEVEL and LOG_FORMAT
+})
+```
+
+- **Per call:** a logger on the context wins over the option for that call, so a request-scoped logger flows through `Start`, `Signal` and the steps they run: `ctx = sagalog.NewContext(ctx, reqLogger)`.
+- **Trace correlation:** every line is derived with go-log's `Logger.Ctx`, so the active span's `trace_id` and `span_id` are attached.
+- **Service pieces:** `Coordinator.SetLogger`, the `Logger` field on `Timer`, `CronDispatcher`, `TriggerDispatcher` and `EventSubscriber`, `api.LoggingMiddleware` for the REST router, and `BootstrapConfig.Logger` in the worker SDK.
+- **IDs, never payloads:** lines carry run, step, workflow and trigger IDs, step types, states, attempts and durations. Run variables, step inputs and results, and signal or event payloads are never logged.
+
+| Level | What you get |
+|---|---|
+| `trace` | Each advance iteration, license gate passes, result key counts, join decisions, heartbeats |
+| `debug` | Step executing, succeeded, paused; state changes; wakeups; each compensated step; HTTP requests |
+| `info` | Saga started, succeeded, cancelled; compensation started and finished; cron and trigger fires |
+| `warn` | Retries, exhausted retries, wait timeouts, failures caught by `try_catch`, skipped compensation |
+| `error` | Step and saga failures, compensation dispatch failures, store and publish errors |
+
+`trace` lines need a logger that also implements `sagalog.TraceLogger`. go-log's neutral `Logger` stops at `debug`, so with it trace lines are dropped; the two service binaries use a logger that has trace. `sagalog/sagalogtest` ships a recording logger for asserting on log output in your own tests.
+
+The service binaries (`cmd/api`, `cmd/engine`) always log, configured by the environment:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `LOG_LEVEL` | `info` | Minimum level: `trace`, `debug`, `info`, `warn`, `error`, or `disabled`. An unknown value falls back to `info` |
+| `LOG_FORMAT` | `json` | `json` for log shippers, `console` (or `pretty`) for reading locally, `both` for JSON on stdout plus console on stderr |
+
+---
+
+## 🔭 Tracing and metrics
+
+The service binaries set up OpenTelemetry with [go-otel](https://github.com/Bugs5382/go-otel): one `Init` call wires the tracer and meter providers and the W3C propagator, tagged `service.name=go-saga-orchestration-api` or `go-saga-orchestration-engine`.
+
+- **Opt-in export:** set `OTEL_EXPORTER_OTLP_ENDPOINT` (a bare `host:port`) and traces and metrics ship over OTLP gRPC. Leave it empty and nothing is exported, but spans still carry real trace IDs and an incoming `traceparent` is continued.
+- **Engine:** a `saga.advance` span per queue message, and gRPC server instrumentation on the worker stream.
+- **API:** a server span per request plus go-otel's request rate, error and duration metrics. Spans carry the method and status, never paths, queries or bodies.
+- **Logs join traces:** every log line inside a span carries its `trace_id` and `span_id`.
+
+The library itself never calls `Init`. Embedders keep their own OpenTelemetry setup, and the engine's log lines pick up the trace IDs of whatever span is active on the context.
 
 ---
 
@@ -126,12 +179,13 @@ All configuration is via environment variables (`internal/config/config.go`):
 - `store`, `store/memory`, `store/postgres` — `Store` interface, in-memory impl, Postgres impl + migrations.
 - `api` — REST handlers, router, and OpenAPI spec (`api/openapi.yaml`).
 - `licensing`, `secrets`, `clock` — resolver interfaces and stubs.
+- `sagalog`, `sagalog/sagalogtest` — logger carrier and quiet default, plus a recording logger for tests.
 
 **Infrastructure (not for direct import)**:
 - `internal/mq` — RabbitMQ topology, publisher, consumer.
 - `internal/cel`, `internal/rules` — CEL evaluator + decision-table rule evaluation.
 - `internal/grpc` — gRPC worker liveness server.
-- `internal/config`, `internal/logging` — environment config + structured logging.
+- `internal/config`, `internal/logging`, `internal/telemetry` — environment config, the service binaries' go-log logger, and their go-otel setup.
 
 **Binaries and supporting dirs**:
 - `cmd/api`, `cmd/engine` — the two service binaries (reference service-mode apps).

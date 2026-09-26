@@ -1,5 +1,9 @@
-// Package logging configures the process-wide zerolog logger. The pretty
-// flag is for human consumption in dev; production uses JSON output.
+// Package logging builds the service binaries' logger on
+// github.com/Bugs5382/go-log. The environment picks the output: LOG_LEVEL
+// sets the minimum level (trace, debug, info, warn, error; default info) and
+// LOG_FORMAT the rendering (json by default, console for local reading, or
+// both). Library code never calls this; it logs only to a logger the caller
+// supplies.
 package logging
 
 /*
@@ -26,21 +30,82 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 
 import (
-	"os"
-	"time"
+	"context"
 
+	golog "github.com/Bugs5382/go-log"
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
+	"go.opentelemetry.io/otel/trace"
 )
 
-// Init wires zerolog with sane defaults. pretty=true prints colourised
-// human-readable lines; pretty=false emits one-line JSON for log
-// shippers.
-func Init(pretty bool) {
-	zerolog.TimeFieldFormat = time.RFC3339Nano
-	if pretty {
-		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339})
-		return
+// New returns the logger for the named service binary, configured from
+// LOG_LEVEL and LOG_FORMAT through go-log. Unlike go-log's neutral Logger it
+// also implements sagalog.TraceLogger, so LOG_LEVEL=trace shows the engine's
+// step-by-step lines.
+func New(service string) golog.Logger {
+	return svcLogger{l: golog.New(service)}
+}
+
+// svcLogger adapts the zerolog.Logger go-log builds to golog.Logger plus a
+// Trace method. zerolog stays confined to this internal package.
+type svcLogger struct {
+	l zerolog.Logger
+}
+
+func withFields(e *zerolog.Event, fields []golog.Field) *zerolog.Event {
+	for _, f := range fields {
+		e = e.Interface(f.Key, f.Val)
 	}
-	log.Logger = zerolog.New(os.Stdout).With().Timestamp().Logger()
+	return e
+}
+
+// Trace logs msg at trace level.
+func (s svcLogger) Trace(msg string, fields ...golog.Field) {
+	withFields(s.l.Trace(), fields).Msg(msg)
+}
+
+// Debug logs msg at debug level.
+func (s svcLogger) Debug(msg string, fields ...golog.Field) {
+	withFields(s.l.Debug(), fields).Msg(msg)
+}
+
+// Info logs msg at info level.
+func (s svcLogger) Info(msg string, fields ...golog.Field) {
+	withFields(s.l.Info(), fields).Msg(msg)
+}
+
+// Warn logs msg at warn level.
+func (s svcLogger) Warn(msg string, fields ...golog.Field) {
+	withFields(s.l.Warn(), fields).Msg(msg)
+}
+
+// Error logs msg at error level with err attached.
+func (s svcLogger) Error(err error, msg string, fields ...golog.Field) {
+	withFields(s.l.Error().Err(err), fields).Msg(msg)
+}
+
+// Fatal logs msg at fatal level with err attached, then exits.
+func (s svcLogger) Fatal(err error, msg string, fields ...golog.Field) {
+	withFields(s.l.Fatal().Err(err), fields).Msg(msg)
+}
+
+// With returns a child carrying fields on every line.
+func (s svcLogger) With(fields ...golog.Field) golog.Logger {
+	c := s.l.With()
+	for _, f := range fields {
+		c = c.Interface(f.Key, f.Val)
+	}
+	return svcLogger{l: c.Logger()}
+}
+
+// Ctx attaches the trace_id and span_id of ctx's active span, the same way
+// go-log's Logger.Ctx does. Without a valid span it returns the receiver.
+func (s svcLogger) Ctx(ctx context.Context) golog.Logger {
+	sc := trace.SpanContextFromContext(ctx)
+	if !sc.IsValid() {
+		return s
+	}
+	return svcLogger{l: s.l.With().
+		Str("trace_id", sc.TraceID().String()).
+		Str("span_id", sc.SpanID().String()).
+		Logger()}
 }

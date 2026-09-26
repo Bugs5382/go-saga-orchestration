@@ -29,12 +29,13 @@ import (
 	"net/http"
 	"strconv"
 
+	golog "github.com/Bugs5382/go-log"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/rs/zerolog/log"
 
 	"github.com/Bugs5382/go-saga-orchestration/domain"
 	"github.com/Bugs5382/go-saga-orchestration/engine"
+	"github.com/Bugs5382/go-saga-orchestration/sagalog"
 	"github.com/Bugs5382/go-saga-orchestration/store"
 )
 
@@ -58,7 +59,7 @@ func (h *WorkflowHandler) Stats(w http.ResponseWriter, r *http.Request) {
 	}
 	stats, err := h.S.StatsForWorkflow(r.Context(), wfID)
 	if err != nil {
-		log.Error().Err(err).Str("workflow_id", wfID).Msg("stats for workflow failed")
+		sagalog.For(r.Context(), nil).Error(err, "stats for workflow failed", golog.F("workflow_id", wfID))
 		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 		return
 	}
@@ -123,7 +124,7 @@ func (h *WorkflowHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	defs, err := h.S.ListWorkflowDefinitions(r.Context(), filter)
 	if err != nil {
-		log.Error().Err(err).Msg("list workflow definitions failed")
+		sagalog.For(r.Context(), nil).Error(err, "list workflow definitions failed")
 		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 		return
 	}
@@ -158,7 +159,7 @@ func (h *WorkflowHandler) Get(w http.ResponseWriter, r *http.Request) {
 				WriteError(w, http.StatusNotFound, "workflow_not_found", idStr)
 				return
 			}
-			log.Error().Err(err).Str("definition_id", idStr).Msg("get workflow definition failed")
+			sagalog.For(r.Context(), nil).Error(err, "get workflow definition failed", golog.F("definition_id", idStr))
 			WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 			return
 		}
@@ -169,7 +170,7 @@ func (h *WorkflowHandler) Get(w http.ResponseWriter, r *http.Request) {
 	// Non-UUID: resolve by business workflow id via the newest-first list.
 	defs, err := h.S.ListWorkflowDefinitions(r.Context(), store.DefinitionFilter{Search: idStr, Limit: 500})
 	if err != nil {
-		log.Error().Err(err).Str("workflow_id", idStr).Msg("resolve workflow definition by id failed")
+		sagalog.For(r.Context(), nil).Error(err, "resolve workflow definition by id failed", golog.F("workflow_id", idStr))
 		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 		return
 	}
@@ -197,7 +198,7 @@ func (h *WorkflowHandler) Save(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := h.S.UpsertWorkflowDefinition(r.Context(), def)
 	if err != nil {
-		log.Error().Err(err).Str("workflow_id", def.ID).Msg("upsert workflow definition failed")
+		sagalog.For(r.Context(), nil).Error(err, "upsert workflow definition failed", golog.F("workflow_id", def.ID))
 		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 		return
 	}

@@ -29,12 +29,14 @@ import (
 	"context"
 	"fmt"
 
+	golog "github.com/Bugs5382/go-log"
 	"github.com/google/uuid"
 
 	"github.com/Bugs5382/go-saga-orchestration/clock"
 	"github.com/Bugs5382/go-saga-orchestration/domain"
 	"github.com/Bugs5382/go-saga-orchestration/engine/verbs"
 	"github.com/Bugs5382/go-saga-orchestration/licensing"
+	"github.com/Bugs5382/go-saga-orchestration/sagalog"
 	"github.com/Bugs5382/go-saga-orchestration/secrets"
 	"github.com/Bugs5382/go-saga-orchestration/store"
 )
@@ -57,6 +59,20 @@ type Coordinator struct {
 	clock     clock.Clock
 	secrets   secrets.Resolver
 	licensing licensing.Resolver
+	log       golog.Logger // nil = silent; see SetLogger
+}
+
+// SetLogger sets the logger the coordinator writes to. A logger carried on
+// the context (sagalog.NewContext) takes precedence per call. With neither,
+// the coordinator writes nothing. Call it before the coordinator starts work;
+// it is not safe to change concurrently with Advance.
+func (c *Coordinator) SetLogger(l golog.Logger) {
+	c.log = l
+}
+
+// logger returns the logger for one call, correlated with ctx's span.
+func (c *Coordinator) logger(ctx context.Context) golog.Logger {
+	return sagalog.For(ctx, c.log)
 }
 
 // NewCoordinator constructs a Coordinator. pub is the Publisher used to
@@ -117,16 +133,23 @@ func (c *Coordinator) CheckParentJoin(ctx context.Context, run domain.SagaRun) {
 // terminal. If the cancelled run is a child, its parent's join is
 // re-evaluated so the parent is not left waiting. See issue #80.
 func (c *Coordinator) Cancel(ctx context.Context, runID uuid.UUID, reason string) error {
+	lg := c.logger(ctx).With(golog.F("run_id", runID.String()))
 	run, err := c.store.GetRun(ctx, runID)
 	if err != nil {
+		lg.Error(err, "cancel: get run failed")
 		return fmt.Errorf("cancel run %s: %w", runID, err)
 	}
 	if run.State.IsTerminal() {
+		lg.Debug("cancel: run already terminal; nothing to do", golog.F("state", string(run.State)))
 		return nil // idempotent — nothing to cancel
 	}
 	if err := c.store.Cancel(ctx, runID, reason); err != nil {
+		lg.Error(err, "cancel: store cancel failed", golog.F("state", string(run.State)))
 		return fmt.Errorf("cancel run %s: %w", runID, err)
 	}
+	// The reason is caller-supplied free text, so only its presence is logged.
+	lg.Info("saga cancelled", golog.F("from_state", string(run.State)), golog.F("step_id", run.CurrentStep),
+		golog.F("has_reason", reason != ""))
 	if run.ParentRunID != nil {
 		c.checkParentJoin(ctx, run)
 	}

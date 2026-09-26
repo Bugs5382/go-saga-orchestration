@@ -27,10 +27,11 @@ import (
 	"context"
 	"fmt"
 
+	golog "github.com/Bugs5382/go-log"
 	amqp "github.com/rabbitmq/amqp091-go"
-	"github.com/rs/zerolog/log"
 
 	"github.com/Bugs5382/go-saga-orchestration/internal/mq"
+	"github.com/Bugs5382/go-saga-orchestration/sagalog"
 	"github.com/Bugs5382/go-saga-orchestration/store"
 )
 
@@ -50,6 +51,7 @@ type EventSubscriber struct {
 	S          store.Store
 	Publisher  TimerPublisher     // same interface as Timer
 	Dispatcher *TriggerDispatcher // optional; nil = wake-only mode
+	Logger     golog.Logger       // optional; nil = silent unless ctx carries a logger
 }
 
 // Deliver processes one event delivery. Returns nil if no matching
@@ -124,11 +126,11 @@ func (e *EventSubscriber) RunRMQ(ctx context.Context, conn *amqp.Connection, que
 			}
 			env := EventDelivery{Topic: d.RoutingKey, Headers: hdrs, Body: d.Body}
 			if err := e.Deliver(ctx, env); err != nil {
-				log.Error().Err(err).Str("topic", d.RoutingKey).Msg("event subscriber: deliver")
+				sagalog.For(ctx, e.Logger).Error(err, "event subscriber: deliver", golog.F("topic", d.RoutingKey))
 			}
 			if e.Dispatcher != nil {
 				if err := e.Dispatcher.Dispatch(ctx, env); err != nil {
-					log.Error().Err(err).Str("topic", d.RoutingKey).Msg("trigger dispatcher")
+					sagalog.For(ctx, e.Logger).Error(err, "trigger dispatcher", golog.F("topic", d.RoutingKey))
 				}
 			}
 		}

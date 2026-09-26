@@ -25,10 +25,11 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 import (
 	"context"
+	golog "github.com/Bugs5382/go-log"
 
 	"github.com/google/uuid"
-	"github.com/rs/zerolog"
 
+	"github.com/Bugs5382/go-saga-orchestration/sagalog"
 	"github.com/Bugs5382/go-saga-orchestration/store"
 )
 
@@ -48,17 +49,18 @@ func InjectStartupVariables(
 	s store.Store,
 	runID uuid.UUID,
 	tenantID *uuid.UUID,
-	log zerolog.Logger,
+	logger golog.Logger,
 	providers ...StartupVariableProvider,
 ) {
 	if len(providers) == 0 {
 		return
 	}
+	lg := sagalog.For(ctx, logger)
 	merge := map[string]any{}
 	for _, p := range providers {
 		vars, err := p.StartupVariables(ctx, tenantID)
 		if err != nil {
-			log.Warn().Err(err).Str("run_id", runID.String()).Msg("startup variable provider failed; skipping")
+			lg.Warn("startup variable provider failed; skipping", golog.F("error", err.Error()), golog.F("run_id", runID.String()))
 			continue
 		}
 		for k, v := range vars {
@@ -69,6 +71,9 @@ func InjectStartupVariables(
 		return
 	}
 	if err := s.UpdateRunVariables(ctx, runID, merge); err != nil {
-		log.Warn().Err(err).Str("run_id", runID.String()).Msg("InjectStartupVariables: write failed")
+		lg.Error(err, "startup variables: write failed", golog.F("run_id", runID.String()))
+		return
 	}
+	lg.Debug("startup variables injected", golog.F("run_id", runID.String()), golog.F("providers", len(providers)),
+		golog.F("variables", len(merge)))
 }

@@ -161,7 +161,7 @@ sc, err := saga.New(saga.Options{
     Licensing: myLicenseResolver, // licensing.Resolver — controls feature groups
     Secrets:   mySecretsResolver, // secrets.Resolver — for http_request/webhook_emit
     Publisher: rabbitPublisher,   // engine.Publisher — RabbitMQ-backed
-    Logger:    &logger,           // *zerolog.Logger
+    Logger:    logger,            // go-log Logger; nil = no logging
     Context:   appCtx,            // base context for background advances
 })
 ```
@@ -171,6 +171,7 @@ Key option notes:
 - **`Licensing`**: omit (or pass `nil`) for `StubAllowAll` (all groups permitted). Provide your own `licensing.Resolver` to gate feature groups in production.
 - **`Secrets`**: omit for an in-memory store seeded from a map. Provide a Vault-backed (or similar) resolver for production.
 - **`Publisher`**: omit for in-process fan-out. Provide a RabbitMQ publisher to enable multi-process workers and the `action` round-trip.
+- **`Logger`**: a [go-log](https://github.com/Bugs5382/go-log) `Logger`, for example `golog.NewLogger("my-service")`. Omit it and the library writes nothing. A logger carried on a call's context (`sagalog.NewContext`) takes precedence for that call. Lines carry IDs, states and durations, never run variables, inputs, results or payloads.
 - See [`store/postgres`](https://github.com/Bugs5382/go-saga-orchestration/tree/main/store/postgres) for the Postgres store implementation and SQL migrations.
 
 ---

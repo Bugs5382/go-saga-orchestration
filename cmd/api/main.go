@@ -33,8 +33,9 @@ import (
 	"syscall"
 	"time"
 
+	golog "github.com/Bugs5382/go-log"
+	gootel "github.com/Bugs5382/go-otel"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/rs/zerolog/log"
 
 	"github.com/Bugs5382/go-saga-orchestration/api"
 	"github.com/Bugs5382/go-saga-orchestration/clock"
@@ -43,6 +44,7 @@ import (
 	"github.com/Bugs5382/go-saga-orchestration/internal/logging"
 	"github.com/Bugs5382/go-saga-orchestration/internal/mq"
 	"github.com/Bugs5382/go-saga-orchestration/internal/storefactory"
+	"github.com/Bugs5382/go-saga-orchestration/internal/telemetry"
 	"github.com/Bugs5382/go-saga-orchestration/licensing"
 	"github.com/Bugs5382/go-saga-orchestration/secrets"
 	"github.com/Bugs5382/go-saga-orchestration/store/postgres"
@@ -63,41 +65,61 @@ func (e *mqEventEmitter) EmitEvent(ctx context.Context, topic string, headers ma
 	return e.pub.PublishEvent(ctx, topic, headers, payload)
 }
 
+// serviceName tags this binary's logs (service) and telemetry (service.name).
+const serviceName = "go-saga-orchestration-api"
+
 func main() {
-	logging.Init(false)
+	// LOG_LEVEL (default info) and LOG_FORMAT (json, console or both) control
+	// this logger; see internal/logging.
+	logger := logging.New(serviceName)
 	cfg := config.Load()
-	log.Info().Str("version", Version).Str("sha", GitSHA).Msg("starting go-saga-orchestration-api")
+	logger.Info("starting "+serviceName, golog.F("version", Version), golog.F("sha", GitSHA))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// OpenTelemetry: traces and metrics export to OTEL_EXPORTER_OTLP_ENDPOINT
+	// when it is set; without it spans still carry trace IDs and W3C trace
+	// context still propagates. Check the error before deferring shutdown.
+	shutdownTelemetry, err := telemetry.Setup(ctx, serviceName, logger)
+	if err != nil {
+		logger.Fatal(err, "telemetry setup")
+	}
+	defer func() {
+		flushCtx, flushCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer flushCancel()
+		if err := shutdownTelemetry(flushCtx); err != nil {
+			logger.Warn("telemetry shutdown", golog.F("error", err.Error()))
+		}
+	}()
+
 	st, closeStore, err := storefactory.Open(ctx, cfg)
 	if err != nil {
-		log.Fatal().Err(err).Msg("store open")
+		logger.Fatal(err, "store open")
 	}
 	defer func() { _ = closeStore() }()
 
 	if cfg.StoreType == "" || cfg.StoreType == "postgres" {
-		log.Info().Msg("postgres migrations applied")
+		logger.Info("postgres migrations applied")
 	}
 
 	conn, err := mq.Connect(cfg.RabbitMQURL)
 	if err != nil {
-		log.Fatal().Err(err).Msg("rabbitmq connect")
+		logger.Fatal(err, "rabbitmq connect")
 	}
 	defer func() { _ = conn.Close() }()
 	pubCh, err := conn.Channel()
 	if err != nil {
-		log.Fatal().Err(err).Msg("rabbitmq channel")
+		logger.Fatal(err, "rabbitmq channel")
 	}
 	if err := mq.DeclareTopology(pubCh); err != nil {
-		log.Fatal().Err(err).Msg("rabbitmq topology")
+		logger.Fatal(err, "rabbitmq topology")
 	}
 	_ = pubCh.Close()
 
 	pub, err := mq.NewPublisher(conn)
 	if err != nil {
-		log.Fatal().Err(err).Msg("rabbitmq publisher")
+		logger.Fatal(err, "rabbitmq publisher")
 	}
 	defer func() { _ = pub.Close() }()
 
@@ -105,6 +127,7 @@ func main() {
 	// and publisher; Cancel only touches the store and re-evaluates a parent
 	// join, so the action-dispatch opts are not wired here.
 	coord := engine.NewCoordinator(st, pub, clock.SystemClock{}, secrets.NewMemory(map[string]string{}), licensing.StubAllowAll{}, pub, &mqEventEmitter{pub: pub})
+	coord.SetLogger(logger)
 	sagas := api.NewSagaHandler(st, pub).WithCanceller(coord)
 	signals := api.NewSignalHandler(st, pub)
 	userTasks := api.NewUserTaskHandler(st, pub)
@@ -119,19 +142,22 @@ func main() {
 	streamH := api.NewSagaStreamHandler(st, pgPool)
 	workflows := api.NewWorkflowHandler(st)
 	router := api.NewRouter(st, sagas, signals, userTasks, reg, rules, triggers, streamH, workflows, actionResults)
-	srv := newHTTPServer(cfg.API.Port, router)
+	// Outermost first: a server span per request (continuing any incoming
+	// traceparent), go-otel's RED metrics, then request logging, which picks
+	// up the span's trace and span IDs.
+	srv := newHTTPServer(cfg.API.Port, tracingMiddleware(gootel.Metrics(api.LoggingMiddleware(logger)(router))))
 
 	go func() {
-		log.Info().Str("port", cfg.API.Port).Msg("http listening")
+		logger.Info("http listening", golog.F("port", cfg.API.Port))
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatal().Err(err).Msg("http")
+			logger.Fatal(err, "http")
 		}
 	}()
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
-	log.Info().Msg("shutting down")
+	logger.Info("shutting down")
 	shutCtx, c := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
 	defer c()
 	_ = srv.Shutdown(shutCtx)

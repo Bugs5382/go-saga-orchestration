@@ -33,12 +33,13 @@ import (
 	"strings"
 	"time"
 
+	golog "github.com/Bugs5382/go-log"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/rs/zerolog/log"
 
 	"github.com/Bugs5382/go-saga-orchestration/domain"
 	"github.com/Bugs5382/go-saga-orchestration/engine"
+	"github.com/Bugs5382/go-saga-orchestration/sagalog"
 	"github.com/Bugs5382/go-saga-orchestration/store"
 )
 
@@ -106,7 +107,7 @@ func (h *SagaHandler) Start(w http.ResponseWriter, r *http.Request) {
 			WriteError(w, http.StatusNotFound, "workflow_not_found", req.WorkflowID)
 			return
 		}
-		log.Error().Err(err).Str("workflow_id", req.WorkflowID).Msg("get published workflow failed")
+		sagalog.For(r.Context(), nil).Error(err, "get published workflow failed", golog.F("workflow_id", req.WorkflowID))
 		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 		return
 	}
@@ -117,7 +118,7 @@ func (h *SagaHandler) Start(w http.ResponseWriter, r *http.Request) {
 	// postgres store's UPSERT keeps a stable id per (workflow_id, version).)
 	defRowID, err := h.store.UpsertWorkflowDefinition(r.Context(), def)
 	if err != nil {
-		log.Error().Err(err).Str("workflow_id", req.WorkflowID).Msg("upsert workflow definition failed")
+		sagalog.For(r.Context(), nil).Error(err, "upsert workflow definition failed", golog.F("workflow_id", req.WorkflowID))
 		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 		return
 	}
@@ -126,13 +127,13 @@ func (h *SagaHandler) Start(w http.ResponseWriter, r *http.Request) {
 	run.DryRun = req.DryRun
 	run.FeatureOverrides = parseFeatureOverrideHeader(r.Header.Get("X-Feature-Override"))
 	if err := h.store.CreateRun(r.Context(), run); err != nil {
-		log.Error().Err(err).Msg("create run failed")
+		sagalog.For(r.Context(), nil).Error(err, "create run failed")
 		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 		return
 	}
-	engine.InjectStartupVariables(r.Context(), h.store, run.ID, req.TenantID, log.Logger, h.providers...)
+	engine.InjectStartupVariables(r.Context(), h.store, run.ID, req.TenantID, nil, h.providers...)
 	if err := h.pub.PublishSagaAdvance(r.Context(), run.ID.String()); err != nil {
-		log.Error().Err(err).Str("run_id", run.ID.String()).Msg("publish saga advance failed")
+		sagalog.For(r.Context(), nil).Error(err, "publish saga advance failed", golog.F("run_id", run.ID.String()))
 		WriteError(w, http.StatusInternalServerError, CodePublishFailed, genericInternalMessage)
 		return
 	}
@@ -155,7 +156,7 @@ func (h *SagaHandler) Get(w http.ResponseWriter, r *http.Request) {
 			WriteError(w, http.StatusNotFound, "saga_not_found", idStr)
 			return
 		}
-		log.Error().Err(err).Str("run_id", idStr).Msg("get run failed")
+		sagalog.For(r.Context(), nil).Error(err, "get run failed", golog.F("run_id", idStr))
 		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 		return
 	}
@@ -200,7 +201,7 @@ func (h *SagaHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 			WriteError(w, http.StatusNotFound, "saga_not_found", idStr)
 			return
 		}
-		log.Error().Err(err).Str("run_id", idStr).Msg("cancel run failed")
+		sagalog.For(r.Context(), nil).Error(err, "cancel run failed", golog.F("run_id", idStr))
 		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 		return
 	}
@@ -287,13 +288,13 @@ func (h *SagaHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	runs, err := h.store.ListRuns(r.Context(), filter)
 	if err != nil {
-		log.Error().Err(err).Msg("list runs failed")
+		sagalog.For(r.Context(), nil).Error(err, "list runs failed")
 		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 		return
 	}
 	total, err := h.store.CountRuns(r.Context(), filter)
 	if err != nil {
-		log.Error().Err(err).Msg("count runs failed")
+		sagalog.For(r.Context(), nil).Error(err, "count runs failed")
 		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 		return
 	}

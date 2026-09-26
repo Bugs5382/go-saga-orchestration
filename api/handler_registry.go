@@ -28,9 +28,10 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/rs/zerolog/log"
+	golog "github.com/Bugs5382/go-log"
 
 	"github.com/Bugs5382/go-saga-orchestration/domain"
+	"github.com/Bugs5382/go-saga-orchestration/sagalog"
 	"github.com/Bugs5382/go-saga-orchestration/store"
 )
 
@@ -85,7 +86,7 @@ func (h *RegistryHandler) Register(w http.ResponseWriter, r *http.Request) {
 		a.Service = body.Service
 		a.ServiceVersion = body.ServiceVersion
 		if err := h.S.UpsertActionRegistration(r.Context(), a); err != nil {
-			log.Error().Err(err).Str("action", a.ActionName).Msg("upsert action registration failed")
+			sagalog.For(r.Context(), nil).Error(err, "upsert action registration failed", golog.F("action", a.ActionName))
 			WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 			return
 		}
@@ -109,7 +110,7 @@ func (h *RegistryHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	actions, err := h.S.ListActions(r.Context(), filter)
 	if err != nil {
-		log.Error().Err(err).Msg("list actions failed")
+		sagalog.For(r.Context(), nil).Error(err, "list actions failed")
 		WriteError(w, http.StatusInternalServerError, CodeInternal, genericInternalMessage)
 		return
 	}

@@ -29,17 +29,18 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 import (
 	"context"
 	"errors"
+	golog "github.com/Bugs5382/go-log"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/rs/zerolog"
 
 	"github.com/Bugs5382/go-saga-orchestration/clock"
 	"github.com/Bugs5382/go-saga-orchestration/domain"
 	"github.com/Bugs5382/go-saga-orchestration/engine"
 	"github.com/Bugs5382/go-saga-orchestration/engine/verbs"
 	"github.com/Bugs5382/go-saga-orchestration/licensing"
+	"github.com/Bugs5382/go-saga-orchestration/sagalog"
 	"github.com/Bugs5382/go-saga-orchestration/secrets"
 	"github.com/Bugs5382/go-saga-orchestration/store"
 	"github.com/Bugs5382/go-saga-orchestration/store/memory"
@@ -55,7 +56,12 @@ type Options struct {
 	Secrets          secrets.Resolver
 	Publisher        engine.Publisher
 	StartupProviders []engine.StartupVariableProvider
-	Logger           *zerolog.Logger // optional; nil = no logging
+	// Logger receives the engine's logs: saga start and finish, step
+	// execution, retries, compensation, timeouts and errors. Optional: nil
+	// means the library writes nothing. A logger carried on a call's context
+	// (sagalog.NewContext) takes precedence for that call. Build one with
+	// golog.NewLogger to honour LOG_LEVEL and LOG_FORMAT.
+	Logger golog.Logger
 	// Context is the base context for background work (parallel/foreach/spawn
 	// child advances run on a cancellable context derived from it). Defaults to
 	// context.Background(). Shutdown cancels the derived context.
@@ -67,7 +73,7 @@ type Saga struct {
 	coord     *engine.Coordinator
 	store     store.Store
 	providers []engine.StartupVariableProvider
-	log       zerolog.Logger
+	log       golog.Logger       // nil = silent
 	cancel    context.CancelFunc // cancels background advances; called by Shutdown
 	wg        *sync.WaitGroup    // tracks in-flight background advances
 }
@@ -87,10 +93,7 @@ func New(opts Options) (*Saga, error) {
 	if sec == nil {
 		sec = secrets.NewMemory(nil)
 	}
-	lg := zerolog.Nop()
-	if opts.Logger != nil {
-		lg = *opts.Logger
-	}
+	lg := opts.Logger
 	base := opts.Context
 	if base == nil {
 		base = context.Background()
@@ -104,10 +107,13 @@ func New(opts Options) (*Saga, error) {
 		pub = inproc
 	}
 	actionPub := actionPublisher(opts.Publisher, inproc)
-	dispatcher := &engine.TriggerDispatcher{S: opts.Store, Publisher: pub, StartupProviders: opts.StartupProviders}
+	dispatcher := &engine.TriggerDispatcher{S: opts.Store, Publisher: pub, StartupProviders: opts.StartupProviders, Logger: lg}
 	emitter := &InProcessEventEmitter{store: opts.Store, publisher: pub, dispatcher: dispatcher, log: lg}
 	coord := engine.NewCoordinator(opts.Store, pub, clk, sec, opts.Licensing, actionPub, emitter)
+	coord.SetLogger(lg)
 	inproc.coord = coord
+	sagalog.Or(lg).Debug("saga engine created", golog.F("in_process_publisher", opts.Publisher == nil),
+		golog.F("startup_providers", len(opts.StartupProviders)))
 	return &Saga{coord: coord, store: opts.Store, providers: opts.StartupProviders, log: lg, cancel: cancel, wg: wg}, nil
 }
 
@@ -116,6 +122,8 @@ func New(opts Options) (*Saga, error) {
 // Returns ctx.Err() if the drain does not complete before ctx is done. After
 // Shutdown the Saga should not be reused.
 func (s *Saga) Shutdown(ctx context.Context) error {
+	lg := sagalog.For(ctx, s.log)
+	lg.Info("saga engine shutting down")
 	s.cancel()
 	done := make(chan struct{})
 	go func() {
@@ -124,8 +132,10 @@ func (s *Saga) Shutdown(ctx context.Context) error {
 	}()
 	select {
 	case <-done:
+		lg.Info("saga engine shut down")
 		return nil
 	case <-ctx.Done():
+		lg.Warn("saga engine shutdown: background advances still running at deadline", golog.F("error", ctx.Err().Error()))
 		return ctx.Err()
 	}
 }
@@ -163,23 +173,30 @@ func (s *Saga) Start(ctx context.Context, workflowID string, inputs map[string]a
 // StartAt creates a run beginning at the named entry point ("" => default/Start)
 // and advances it once (synchronously to the first pause or terminal state).
 func (s *Saga) StartAt(ctx context.Context, workflowID, entrypoint string, inputs map[string]any) (uuid.UUID, error) {
+	lg := sagalog.For(ctx, s.log).With(golog.F("workflow_id", workflowID), golog.F("entrypoint", entrypoint))
 	def, err := s.store.GetPublishedWorkflowByID(ctx, workflowID, nil)
 	if err != nil {
+		lg.Error(err, "start: published workflow not found")
 		return uuid.Nil, err
 	}
 	startStep, err := def.ResolveEntry(entrypoint)
 	if err != nil {
+		lg.Error(err, "start: invalid entrypoint")
 		return uuid.Nil, err
 	}
 	defRowID, err := s.store.UpsertWorkflowDefinition(ctx, def)
 	if err != nil {
+		lg.Error(err, "start: upsert definition failed")
 		return uuid.Nil, err
 	}
 	run := domain.NewSagaRun(def.ID, defRowID, nil, inputs)
 	run.CurrentStep = startStep
 	if err := s.store.CreateRun(ctx, run); err != nil {
+		lg.Error(err, "start: create run failed")
 		return uuid.Nil, err
 	}
+	lg.Debug("run created", golog.F("run_id", run.ID.String()), golog.F("start_step", startStep),
+		golog.F("inputs", len(inputs)))
 	engine.InjectStartupVariables(ctx, s.store, run.ID, nil, s.log, s.providers...)
 	if err := s.coord.Advance(ctx, run.ID.String()); err != nil {
 		return run.ID, err
@@ -213,16 +230,21 @@ func (s *Saga) Signal(ctx context.Context, runID uuid.UUID, name string, payload
 		Payload:    payload,
 		ReceivedAt: s.now(),
 	}
+	lg := sagalog.For(ctx, s.log).With(golog.F("run_id", runID.String()), golog.F("signal", name))
 	if err := s.store.AppendSignal(ctx, sig); err != nil {
+		lg.Error(err, "signal: append failed")
 		return err
 	}
 	ok, err := s.store.TryConsumeAwaitedSignal(ctx, runID, name)
 	if err != nil {
+		lg.Error(err, "signal: consume failed")
 		return err
 	}
 	if ok {
+		lg.Debug("signal consumed; advancing run")
 		return s.coord.Advance(ctx, runID.String())
 	}
+	lg.Debug("signal recorded; run was not waiting for it")
 	return nil
 }
 

@@ -31,13 +31,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	golog "github.com/Bugs5382/go-log"
 	"io"
 
 	"github.com/google/uuid"
-	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 
 	pb "github.com/Bugs5382/go-saga-orchestration/proto/livenesspb"
+	"github.com/Bugs5382/go-saga-orchestration/sagalog"
 	"github.com/Bugs5382/go-saga-orchestration/store"
 )
 
@@ -52,11 +53,18 @@ type Server struct {
 	pb.UnimplementedWorkerLivenessServer
 	S         store.Store
 	Publisher AdvancePublisher
+	Logger    golog.Logger // optional; nil = silent unless the stream context carries a logger
 }
 
-// Register attaches Server to a gRPC server.
+// Register attaches Server to a gRPC server with no logger.
 func Register(grpcServer *grpc.Server, s store.Store, pub AdvancePublisher) {
-	pb.RegisterWorkerLivenessServer(grpcServer, &Server{S: s, Publisher: pub})
+	RegisterWithLogger(grpcServer, s, pub, nil)
+}
+
+// RegisterWithLogger attaches Server to a gRPC server, logging to l. A nil l
+// is silent unless a stream's context carries a logger.
+func RegisterWithLogger(grpcServer *grpc.Server, s store.Store, pub AdvancePublisher, l golog.Logger) {
+	pb.RegisterWorkerLivenessServer(grpcServer, &Server{S: s, Publisher: pub, Logger: l})
 }
 
 // ExecuteStep is the bidi RPC workers use to report progress on a
@@ -72,85 +80,101 @@ func Register(grpcServer *grpc.Server, s store.Store, pub AdvancePublisher) {
 // idempotency wrapper handle retries.
 func (s *Server) ExecuteStep(stream pb.WorkerLiveness_ExecuteStepServer) error {
 	ctx := stream.Context()
+	lg := sagalog.For(ctx, s.Logger)
 	var (
 		runIDStr string
 		stepID   string
 		attempt  int32
 		started  bool
 	)
+	lg.Debug("grpc: worker stream opened")
 	for {
 		ev, err := stream.Recv()
 		if err == io.EOF {
+			lg.Debug("grpc: worker stream closed", golog.F("run_id", runIDStr), golog.F("step_id", stepID))
 			return nil
 		}
 		if err != nil {
-			log.Error().Err(err).Msg("grpc: recv")
+			lg.Error(err, "grpc: recv", golog.F("run_id", runIDStr), golog.F("step_id", stepID))
 			return err
 		}
 		switch e := ev.Event.(type) {
 		case *pb.WorkerEvent_Start:
 			if started {
-				return errors.New("grpc: duplicate StartJob")
+				err := errors.New("grpc: duplicate StartJob")
+				lg.Warn("grpc: duplicate StartJob; closing stream", golog.F("run_id", runIDStr), golog.F("step_id", stepID))
+				return err
 			}
 			started = true
 			runIDStr = e.Start.RunId
 			stepID = e.Start.StepId
 			attempt = e.Start.Attempt
+			lg = lg.With(golog.F("run_id", runIDStr), golog.F("step_id", stepID), golog.F("attempt", attempt))
+			lg.Debug("grpc: worker started job")
 			// Acknowledge.
 			if err := stream.Send(&pb.EngineEvent{
 				Event: &pb.EngineEvent_Ack{Ack: &pb.Acknowledged{}},
 			}); err != nil {
+				lg.Error(err, "grpc: send ack failed")
 				return err
 			}
 		case *pb.WorkerEvent_Heartbeat:
-			log.Debug().Str("run_id", runIDStr).Str("step_id", stepID).
-				Int32("progress_pct", e.Heartbeat.ProgressPct).Msg("grpc: heartbeat")
+			sagalog.Trace(lg, "grpc: heartbeat", golog.F("progress_pct", e.Heartbeat.ProgressPct))
 			// No state change; could be used for long-action timeout extension.
 		case *pb.WorkerEvent_Complete:
 			if !started {
+				lg.Warn("grpc: complete without start; closing stream")
 				return errors.New("grpc: complete without start")
 			}
-			return s.handleComplete(ctx, runIDStr, stepID, int(attempt), e.Complete)
+			return s.handleComplete(ctx, lg, runIDStr, int(attempt), e.Complete)
 		case *pb.WorkerEvent_Error:
 			if !started {
+				lg.Warn("grpc: error without start; closing stream")
 				return errors.New("grpc: error without start")
 			}
-			return s.handleError(ctx, runIDStr, stepID, int(attempt), e.Error)
+			return s.handleError(ctx, lg, runIDStr, int(attempt), e.Error)
 		}
 	}
 }
 
-func (s *Server) handleComplete(ctx context.Context, runIDStr, stepID string, attempt int, c *pb.Complete) error {
+func (s *Server) handleComplete(ctx context.Context, lg golog.Logger, runIDStr string, attempt int, c *pb.Complete) error {
 	runID, err := uuid.Parse(runIDStr)
 	if err != nil {
+		lg.Error(err, "grpc: complete: invalid run id")
 		return err
 	}
 	var result map[string]any
 	if len(c.ResultJson) > 0 {
 		if err := json.Unmarshal(c.ResultJson, &result); err != nil {
-			log.Warn().Err(err).Msg("grpc: result_json decode")
+			// The raw result is kept on the run but never logged.
+			lg.Warn("grpc: result_json decode failed; storing raw result", golog.F("error", err.Error()),
+				golog.F("result_bytes", len(c.ResultJson)))
 			result = map[string]any{"_raw_result": string(c.ResultJson)}
 		}
 	}
 	if err := s.S.CompleteAction(ctx, runID, attempt, result); err != nil {
-		log.Error().Err(err).Msg("grpc: complete action")
+		lg.Error(err, "grpc: complete action")
 		return err
 	}
+	lg.Info("grpc: action completed by worker", golog.F("result_keys", len(result)))
 	if s.Publisher != nil {
 		if err := s.Publisher.PublishSagaAdvance(ctx, runIDStr); err != nil {
-			log.Error().Err(err).Msg("grpc: publish saga.advance")
+			lg.Error(err, "grpc: publish saga.advance")
 		}
 	}
 	return nil
 }
 
-func (s *Server) handleError(ctx context.Context, runIDStr, stepID string, attempt int, e *pb.Error) error {
+func (s *Server) handleError(ctx context.Context, lg golog.Logger, runIDStr string, attempt int, e *pb.Error) error {
 	runID, err := uuid.Parse(runIDStr)
 	if err != nil {
+		lg.Error(err, "grpc: error report: invalid run id")
 		return err
 	}
+	// The worker's message is stored on the run; only the code is logged.
+	lg.Warn("grpc: worker reported action failure", golog.F("code", e.Code), golog.F("retryable", e.Retryable))
 	if err := s.S.FailAction(ctx, runID, attempt, e.Code, e.Message, e.Retryable); err != nil {
-		log.Error().Err(err).Msg("grpc: fail action")
+		lg.Error(err, "grpc: fail action")
 		return err
 	}
 	// FailAction transitioned the run to failed; no advance needed.
