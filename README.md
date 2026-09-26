@@ -74,7 +74,7 @@ See [`examples/basic`](examples/basic) for a runnable standalone example, and th
 
 | Doc | What it covers |
 |---|---|
-| [Verb reference](https://bugs5382.github.io/go-saga-orchestration/docs/verbs) | Complete reference for all 31 step types — inputs, outputs, license groups, and example links |
+| [Verb reference](https://bugs5382.github.io/go-saga-orchestration/docs/verbs) | Complete reference for every step type — inputs, outputs, license groups, and example links |
 | [Embedding guide](https://bugs5382.github.io/go-saga-orchestration/docs/embedding) | Quickstart, custom verbs, custom actions, data flow, entry points, production wiring, lifecycle, service mode |
 | [Testing sagas](https://bugs5382.github.io/go-saga-orchestration/docs/testing) | Writing unit tests for workflows and custom verbs with the in-memory store |
 | [Store backends](https://bugs5382.github.io/go-saga-orchestration/docs/stores) | Store backend selection (`STORE_TYPE`), env vars, Redis/Valkey durability, `REDIS_RUN_TTL`, and the stream-requires-postgres limitation |
@@ -84,7 +84,7 @@ See [`examples/basic`](examples/basic) for a runnable standalone example, and th
 | [gRPC workers](https://bugs5382.github.io/go-saga-orchestration/docs/grpc) | The `WorkerLiveness.ExecuteStep` worker protocol |
 | [Deployment](https://bugs5382.github.io/go-saga-orchestration/docs/deployment) | Container images (GHCR) and Helm chart deployment |
 | [`clients/go/worker/README.md`](clients/go/worker/README.md) | Go worker SDK |
-| [`examples/`](examples/) | Basic embed example and 31 per-verb workflow JSON files |
+| [`examples/`](examples/) | Basic embed example and a workflow JSON file per verb |
 
 ---
 
@@ -122,7 +122,7 @@ All configuration is via environment variables (`internal/config/config.go`):
 **Public importable packages** (the library surface):
 - `saga` — facade (`saga.InMemory()`, `saga.New(saga.Options{...})`, `*saga.Saga`).
 - `domain` — core types (`WorkflowDefinition`, `SagaRun`, `Step`, `RuleDefinition`, etc.).
-- `engine`, `engine/verbs` — coordinator + the 31 saga step implementations + `verbs.HandlerFunc`.
+- `engine`, `engine/verbs` — coordinator + a verb for every step type except `end` (the coordinator finishes the run itself) + `verbs.HandlerFunc`.
 - `store`, `store/memory`, `store/postgres` — `Store` interface, in-memory impl, Postgres impl + migrations.
 - `api` — REST handlers, router, and OpenAPI spec (`api/openapi.yaml`).
 - `licensing`, `secrets`, `clock` — resolver interfaces and stubs.
