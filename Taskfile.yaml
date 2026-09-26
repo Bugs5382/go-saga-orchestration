@@ -21,7 +21,7 @@ tasks:
   test:
     desc: Run tests
     cmds:
-      - go test -parallel {{.TESTPARALLELISM}} ./...
+      - go test -race -parallel {{.TESTPARALLELISM}} ./...
   test-cover:
     desc: Run tests with coverage reporting
     cmds:

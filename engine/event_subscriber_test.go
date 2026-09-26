@@ -51,8 +51,8 @@ func TestEventSubscriber_MatchingTopicAndHeaders_Publishes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("deliver: %v", err)
 	}
-	if len(pub.runs) != 1 || pub.runs[0] != r.ID.String() {
-		t.Errorf("publisher saw %v, want one publish of %s", pub.runs, r.ID)
+	if len(pub.snapshot()) != 1 || pub.snapshot()[0] != r.ID.String() {
+		t.Errorf("publisher saw %v, want one publish of %s", pub.snapshot(), r.ID)
 	}
 
 	// State should be cleared back to running.
@@ -74,8 +74,8 @@ func TestEventSubscriber_TopicMismatch_NoPublish(t *testing.T) {
 
 	_ = sub.Deliver(ctx, EventDelivery{Topic: "no.match", Headers: nil})
 
-	if len(pub.runs) != 0 {
-		t.Errorf("expected no publish, got %v", pub.runs)
+	if len(pub.snapshot()) != 0 {
+		t.Errorf("expected no publish, got %v", pub.snapshot())
 	}
 }
 
@@ -93,8 +93,8 @@ func TestEventSubscriber_HeaderMismatch_NoPublish(t *testing.T) {
 		Topic:   "foo.bar",
 		Headers: map[string]string{"x": "2"}, // wrong value
 	})
-	if len(pub.runs) != 0 {
-		t.Errorf("expected no publish on header mismatch, got %v", pub.runs)
+	if len(pub.snapshot()) != 0 {
+		t.Errorf("expected no publish on header mismatch, got %v", pub.snapshot())
 	}
 }
 
@@ -109,7 +109,7 @@ func TestEventSubscriber_EmptyAwaitedHeaders_MatchesAny(t *testing.T) {
 	sub := &EventSubscriber{S: s, Publisher: pub}
 
 	_ = sub.Deliver(ctx, EventDelivery{Topic: "foo.bar", Headers: map[string]string{"anything": "goes"}})
-	if len(pub.runs) != 1 {
-		t.Errorf("expected match with empty awaited headers, got %d publishes", len(pub.runs))
+	if len(pub.snapshot()) != 1 {
+		t.Errorf("expected match with empty awaited headers, got %d publishes", len(pub.snapshot()))
 	}
 }
