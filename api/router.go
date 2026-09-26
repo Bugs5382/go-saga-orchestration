@@ -37,7 +37,11 @@ import (
 func NewRouter(_ store.Store, sagas *SagaHandler, signals *SignalHandler, userTasks *UserTaskHandler, registryHandler *RegistryHandler, rulesHandler *RulesHandler, triggersHandler *TriggerHandler, streamHandler *SagaStreamHandler, workflows *WorkflowHandler, actionResults *ActionResultHandler) *chi.Mux {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
+	// Record the client IP from the connection only. RealIP trusted
+	// X-Forwarded-For and friends from any caller, which let clients spoof
+	// their address. Deployments behind a known proxy can swap in
+	// middleware.ClientIPFromXFFTrustedProxies.
+	r.Use(middleware.ClientIPFromRemoteAddr)
 	r.Use(middleware.Recoverer)
 
 	r.Get("/health/live", HealthLive)
