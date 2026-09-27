@@ -23,6 +23,7 @@ jobs:
   version-and-build:
     name: 🔨 Version and build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: 🔑 Create App token
         id: app-token
@@ -84,6 +85,7 @@ jobs:
     name: 🚀 Deploy
     needs: [version-and-build]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

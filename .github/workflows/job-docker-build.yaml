@@ -1,8 +1,11 @@
 name: Docker Build
 # Validate the image build and chart on PRs: build both services (no push,
-# amd64 only for speed) and lint/render the Helm chart.
+# amd64 only for speed) and lint/render the Helm chart. Drafts are skipped; the
+# build runs when the PR is marked ready.
 on:
   pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'cmd/**'
       - 'internal/**'
@@ -18,7 +21,9 @@ concurrency:
 jobs:
   build-images:
     name: 🐳 Build images
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -38,7 +43,9 @@ jobs:
           push: false
   lint-chart:
     name: ⎈ Lint chart
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v4
