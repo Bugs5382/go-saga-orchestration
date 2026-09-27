@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.7.0 - 2026-09-27
+
+### What Changed 👀
+
+#### 🚀 Features
+
+- refactor(logging): log through Bugs5382/go-log @Bugs5382 (#113)
+- feat(api): add workflow definitions HTTP API (list/get/save) and fix ListRuns NULL scan @Bugs5382 (#99)
+
+#### 🐛 Bug Fixes
+
+- fix(store): deep-copy memory store reads and fix parallel join wakeups @Bugs5382 (#117)
+- fix(deps): clear the govulncheck and gosec findings @Bugs5382 (#108)
+
+#### ⚠️ Changes
+
+- refactor(logging): log through Bugs5382/go-log @Bugs5382 (#113)
+
+#### 📄 Documentation
+
+- docs: correct the step type count in the verb reference and AGENTS.md @Bugs5382 (#114)
+- docs: use the "Next 🚧" version-picker label @Bugs5382 (#100)
+- docs(readme): state one count of saga step types @Bugs5382 (#111)
+- docs(readme): apply the lite emoji treatment @Bugs5382 (#104)
+
+### Extra
+
+**Full Changelog**: https://github.com/Bugs5382/go-saga-orchestration/compare/v0.6.2...v0.7.0
+
 ## v0.6.1 - 2026-07-06
 
 ### What Changed 👀
