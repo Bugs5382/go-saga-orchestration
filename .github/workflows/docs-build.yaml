@@ -1,8 +1,11 @@
 name: Docs Build
 # Build-only check on PRs that touch the docs site, so MDX errors (and broken
-# generation) fail at PR time, never at release deploy. No publish.
+# generation) fail at PR time, never at release deploy. No publish. Drafts are
+# skipped; the build runs when the PR is marked ready.
 on:
   pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'website/**'
       - 'docs/**'
@@ -15,7 +18,9 @@ concurrency:
 jobs:
   build:
     name: 🏗️ Build docs
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v4

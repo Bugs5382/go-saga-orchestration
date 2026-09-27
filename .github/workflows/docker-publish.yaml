@@ -12,6 +12,7 @@ jobs:
   publish-images:
     name: 🐳 Publish images
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -49,6 +50,7 @@ jobs:
   publish-chart:
     name: ⎈ Publish chart asset
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v4
