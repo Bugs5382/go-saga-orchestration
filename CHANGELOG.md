@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.7.1 - 2026-10-24
+
+### What Changed 👀
+
+#### 🐛 Bug Fixes
+
+- fix(postgres): load the attempt, awaited action and pause markers in GetRun @Bugs5382 (#121)
+
+### Extra
+
+**Full Changelog**: https://github.com/Bugs5382/go-saga-orchestration/compare/v0.7.0...v0.7.1
+
 ## v0.7.0 - 2026-09-27
 
 ### What Changed 👀
