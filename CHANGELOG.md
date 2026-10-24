@@ -8,6 +8,10 @@
 
 - feat(worker): export the liveness server, queue topology and compensation for embedders @Bugs5382 (#123)
 
+#### 🐛 Bug Fixes
+
+- fix(deps): bump Go to 1.26.10, x/net to v0.60.0 and amqp091-go to v1.14.0 @Bugs5382 (#127)
+
 ### Extra
 
 **Full Changelog**: https://github.com/Bugs5382/go-saga-orchestration/compare/v0.7.1...v0.8.0
