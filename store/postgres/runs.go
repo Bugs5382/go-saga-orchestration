@@ -70,25 +70,34 @@ func (s *Store) CreateRun(ctx context.Context, run domain.SagaRun) error {
 	return err
 }
 
-// GetRun loads the run with the given ID, or returns ErrNotFound.
+// GetRun loads the run with the given ID, or returns ErrNotFound. It returns
+// every field CreateRun and the pause/await calls persist: the parent and
+// try_catch fields, the current attempt, the awaited action, and the wakeup,
+// signal and event markers.
 func (s *Store) GetRun(ctx context.Context, id uuid.UUID) (domain.SagaRun, error) {
 	var (
 		run           domain.SagaRun
 		inputs, vars  []byte
 		overridesJSON []byte
+		stackJSON     []byte
+		hdrsJSON      []byte
 		terminalAt    *time.Time
 		lastErr       *string
 	)
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, workflow_id, definition_id, tenant_id, state, COALESCE(current_step, '') AS current_step,
 		       inputs, variables, started_at, last_event_at, terminal_at,
-		       requires_manual_review, trigger_id, parent_run_id, dry_run,
-		       feature_overrides, last_error
+		       requires_manual_review, trigger_id, parent_run_id, parent_step_id, parent_branch_id,
+		       try_catch_stack, dry_run, feature_overrides, last_error,
+		       current_attempt, awaited_action_dispatch,
+		       wakeup_at, awaited_signal, awaited_event_topic, awaited_event_headers
 		FROM runtime.saga_runs WHERE id = $1`, id).Scan(
 		&run.ID, &run.WorkflowID, &run.DefinitionID, &run.TenantID, &run.State, &run.CurrentStep,
 		&inputs, &vars, &run.StartedAt, &run.LastEventAt, &terminalAt,
-		&run.RequiresManualReview, &run.TriggerID, &run.ParentRunID, &run.DryRun,
-		&overridesJSON, &lastErr,
+		&run.RequiresManualReview, &run.TriggerID, &run.ParentRunID, &run.ParentStepID, &run.ParentBranchID,
+		&stackJSON, &run.DryRun, &overridesJSON, &lastErr,
+		&run.CurrentAttempt, &run.AwaitedActionDispatch,
+		&run.WakeupAt, &run.AwaitedSignal, &run.AwaitedEventTopic, &hdrsJSON,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.SagaRun{}, store.ErrNotFound{Entity: "saga_run", ID: id.String()}
@@ -107,6 +116,16 @@ func (s *Store) GetRun(ctx context.Context, id uuid.UUID) (domain.SagaRun, error
 	if len(overridesJSON) > 0 {
 		if err := json.Unmarshal(overridesJSON, &run.FeatureOverrides); err != nil {
 			return domain.SagaRun{}, err
+		}
+	}
+	if len(stackJSON) > 0 {
+		if err := json.Unmarshal(stackJSON, &run.TryCatchStack); err != nil {
+			return domain.SagaRun{}, fmt.Errorf("unmarshal try_catch_stack: %w", err)
+		}
+	}
+	if len(hdrsJSON) > 0 {
+		if err := json.Unmarshal(hdrsJSON, &run.AwaitedEventHeaders); err != nil {
+			return domain.SagaRun{}, fmt.Errorf("unmarshal awaited_event_headers: %w", err)
 		}
 	}
 	return run, nil
