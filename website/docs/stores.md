@@ -51,6 +51,26 @@ By default, terminal-run keys are kept forever. Set `REDIS_RUN_TTL` to a Go dura
 
 ---
 
+## Published definitions: postgres is strict
+
+When a workflow or rule has no published version, the backends answer differently. `postgres` returns not found, so the API, triggers and `sub_saga`/`spawn_saga` only ever start a published definition. `memory`, `redis` and `valkey` fall back to the most recently stored version, which keeps quick tests and local development free of a publish step. Publish every definition you mean to run in production.
+
+## Conformance suite
+
+Every backend runs the same contract tests in `store/storetest`. A backend wires them up with a factory that returns a fresh, empty store:
+
+```go
+// store/memory and store/redis
+storetest.RunSuite(t, newStore)
+
+// store/postgres
+storetest.RunSuite(t, newStore, storetest.PublishedOnly())
+```
+
+`PublishedOnly()` declares the strict lookup above. The PostgreSQL and Redis runs skip unless `TEST_POSTGRES_DSN` or `TEST_REDIS_URL` is set; the PostgreSQL run creates and drops one database per group, so its role needs `CREATEDB`. CI runs both against service containers.
+
+---
+
 ## Limitation: live saga-stream requires postgres
 
 The `GET /api/v1/sagas/{run_id}/stream` endpoint tails audit events in real time using PostgreSQL `LISTEN/NOTIFY`. Under the `redis`, `valkey`, or `memory` backends, the handler returns **HTTP 501 Not Implemented** because the required Postgres connection pool is not available. All other API endpoints work with any backend.
