@@ -25,7 +25,7 @@ cd "$ROOT"
 gomarkdoc --output "$OUT/{{.Dir}}.md" \
   ./saga ./engine ./engine/verbs ./domain \
   ./store ./store/memory ./store/postgres ./store/redis \
-  ./clock ./secrets ./api
+  ./clock ./secrets ./api ./liveness ./topology
 
 # Strip gomarkdoc's per-package "## Index" block (a huge symbol list at the top
 # of each page) — Docusaurus's own right-side TOC already provides navigation.

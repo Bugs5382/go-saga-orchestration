@@ -91,6 +91,54 @@ The engine dispatches `payments.charge_card` over the configured publisher (Rabb
 
 See [`docs/grpc.md`](grpc.md) for the worker protocol and [`clients/go/worker`](https://github.com/Bugs5382/go-saga-orchestration/tree/main/clients/go/worker) for the SDK.
 
+### Serving workers from your own application
+
+When your application embeds the engine and keeps its own verb registry, it
+serves the worker side itself with three public pieces:
+
+- **`liveness`** serves the `ExecuteStep` stream. `liveness.StoreReporter`
+  accepts a report only while the run waits for that step and attempt, wakes
+  the run on success, and compensates on failure. Implement
+  `liveness.Reporter` to add your own bookkeeping.
+- **`topology`** names the `action.direct` exchange and the engine's queues,
+  and declares a worker's queue with one exact binding per action name.
+- **`Coordinator.CompensateFailedStep`** rolls back a run's completed steps
+  when a step's failure is recorded outside the engine (a worker's report, or
+  a step your application timed out).
+
+```go
+sc, err := saga.New(saga.Options{Store: pgStore, Publisher: rabbitPublisher, Logger: logger})
+if err != nil {
+    log.Fatal(err)
+}
+
+grpcServer := grpc.NewServer()
+liveness.Register(grpcServer, liveness.NewServer(&liveness.StoreReporter{
+    Store:       pgStore,
+    Advance:     rabbitPublisher,
+    Compensator: sc.Coordinator(),
+    Logger:      logger,
+}, logger))
+```
+
+Workers built with the Go SDK skip the REST registration and use the full verb
+names your registry holds:
+
+```go
+err := worker.Bootstrap(ctx, worker.BootstrapConfig{
+    Service:              "billing",
+    RmqURL:               rabbitURL,
+    GrpcURL:              "my-app:9090",
+    SkipRegistration:     true, // the verbs are registered with my application
+    QualifiedActionNames: true, // Name is the full action name
+    DialOptions:          dialOpts, // TLS or per-RPC credentials
+    Actions: []worker.Action{
+        {Name: "com.example.billing.charge", Handler: charge},
+        {Name: "com.example.billing.refund", Handler: refund},
+    },
+})
+```
+
 ---
 
 ## 🪢 Data flow between steps
@@ -151,7 +199,7 @@ import (
     "github.com/Bugs5382/go-saga-orchestration/store/postgres"
 )
 
-pgStore, err := postgres.New(ctx, databaseDSN)
+pgStore, err := postgres.Open(ctx, databaseDSN)
 if err != nil {
     log.Fatal(err)
 }

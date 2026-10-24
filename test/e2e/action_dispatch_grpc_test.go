@@ -40,15 +40,15 @@ import (
 	"github.com/Bugs5382/go-saga-orchestration/clock"
 	"github.com/Bugs5382/go-saga-orchestration/domain"
 	"github.com/Bugs5382/go-saga-orchestration/engine"
-	grpcsrv "github.com/Bugs5382/go-saga-orchestration/internal/grpc"
 	"github.com/Bugs5382/go-saga-orchestration/licensing"
+	"github.com/Bugs5382/go-saga-orchestration/liveness"
 	pb "github.com/Bugs5382/go-saga-orchestration/proto/livenesspb"
 	"github.com/Bugs5382/go-saga-orchestration/secrets"
 	"github.com/Bugs5382/go-saga-orchestration/store/memory"
 )
 
 // e2ePub satisfies both engine.Publisher (saga.advance) and
-// grpcsrv.AdvancePublisher — same method signature. Calls coord.Advance
+// liveness.AdvancePublisher — same method signature. Calls coord.Advance
 // in a goroutine for the saga.advance case; the action-dispatch case is
 // handled by a separate inProcActionPub.
 type e2ePub struct {
@@ -114,9 +114,9 @@ func TestActionDispatch_StubWorker_EndToEnd(t *testing.T) {
 	// Set up the engine-side gRPC server on bufconn.
 	lis := bufconn.Listen(1 << 20)
 	srv := grpc.NewServer()
-	// e2ePub satisfies grpcsrv.AdvancePublisher; we backfill coord below.
+	// e2ePub satisfies liveness.AdvancePublisher; we backfill coord below.
 	pub := &e2ePub{}
-	grpcsrv.Register(srv, s, pub)
+	liveness.Register(srv, liveness.NewServer(&liveness.StoreReporter{Store: s, Advance: pub}, nil))
 	go srv.Serve(lis) //nolint:errcheck
 	defer srv.Stop()
 
@@ -198,6 +198,6 @@ func TestActionDispatch_StubWorker_EndToEnd(t *testing.T) {
 
 // Compile-time interface satisfaction checks.
 var (
-	_ engine.Publisher         = (*e2ePub)(nil)
-	_ grpcsrv.AdvancePublisher = (*e2ePub)(nil)
+	_ engine.Publisher          = (*e2ePub)(nil)
+	_ liveness.AdvancePublisher = (*e2ePub)(nil)
 )

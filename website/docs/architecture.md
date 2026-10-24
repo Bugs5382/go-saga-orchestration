@@ -151,7 +151,7 @@ When the `action` verb runs it resolves the registration for `step.Action` (pars
 
 The http/rmq dispatchers are wired into the engine via `verbs.WithHTTPDispatcher` / `verbs.WithRMQDispatcher` options on `NewCoordinator`; omitting them leaves the gRPC-only default and makes an `http`/`rmq` action a hard error at dispatch time.
 
-**Result return.** gRPC workers reply over the `ExecuteStep` stream (`internal/grpc/server.go`). http/rmq workers have no return stream, so they report their result asynchronously over a transport-agnostic **result-callback REST endpoint**: `POST /api/v1/sagas/{run_id}/actions/{step_id}/result`. Its handler (`api/handler_action_result.go`) applies the same `CompleteAction` (success) / `FailAction` (failure) store hooks the gRPC server uses, preserving attempt handling and idempotency (a stale `attempt` is a no-op).
+**Result return.** gRPC workers reply over the `ExecuteStep` stream (the `liveness` package). http/rmq workers have no return stream, so they report their result asynchronously over a transport-agnostic **result-callback REST endpoint**: `POST /api/v1/sagas/{run_id}/actions/{step_id}/result`. Its handler (`api/handler_action_result.go`) applies the same `CompleteAction` (success) / `FailAction` (failure) store hooks the gRPC server uses, preserving attempt handling and idempotency (a stale `attempt` is a no-op).
 
 License groups → feature flags are defined in `engine/verbs/license_groups.go` (`GroupToFeature`): `common`→(none), `observability`→`wf.observability`, `external_io_advanced`→`wf.external_io`, `waits`→`wf.timers`, `events_and_signals`→`wf.event_driven`, `human_interaction`→`wf.user_tasks`, `parallel_control`→`wf.parallel`, `loops_and_recovery`→`wf.loops_recovery`, `compositions`→`wf.compositions`.
 
@@ -236,7 +236,7 @@ The engine is structured as an embeddable library. The top-level packages form t
 | `clock` | `Clock` interface (`SystemClock` + test stub). |
 | `api` | REST handlers, router (`api/router.go`), and the OpenAPI spec (`api/openapi.yaml`). |
 
-Infrastructure that backs the public interfaces but is not part of the importable surface lives under `internal/`: `internal/mq` (RabbitMQ topology, publisher, consumer), `internal/cel` (CEL evaluator), `internal/rules` (decision-table evaluation), `internal/grpc` (gRPC worker liveness server), `internal/config` (environment-variable config), `internal/logging`. Consumers should not import these directly.
+Infrastructure that backs the public interfaces but is not part of the importable surface lives under `internal/`: `internal/mq` (RabbitMQ publisher, consumer), `internal/cel` (CEL evaluator), `internal/rules` (decision-table evaluation), `internal/config` (environment-variable config), `internal/logging`. Consumers should not import these directly.
 
 ### Embedding the engine
 
@@ -267,10 +267,10 @@ What persists: workflow/rule/action definitions (`definitions.*`); live run stat
 
 ---
 
-## 7. Messaging: RabbitMQ topology (`internal/mq`)
+## 7. Messaging: RabbitMQ topology (`topology`, `internal/mq`)
 
-`mq.DeclareTopology` (declared by the go-saga-orchestration processes, idempotent) sets up:
-- **Exchange `action.direct`** (direct, durable) — step dispatch. The `action` verb publishes `ActionPayload` here with routing key `<service>.<action_name>`. Workers declare their own per-service queue (`<service>.actions`) bound with `<service>.*` and consume it.
+`topology.Declare` (called through `mq.DeclareTopology` by the go-saga-orchestration processes, idempotent) sets up:
+- **Exchange `action.direct`** (direct, durable) — step dispatch. The `action` verb publishes `ActionPayload` here with routing key = the full action name (`<service>.<action_name>`), and compensation publishes `CompensationPayload` the same way with `"compensation": true`. Workers declare their own queue (`<service>.actions` by default) bound once per action name with `topology.DeclareActionQueue` and consume it; a direct exchange matches keys exactly, so wildcard bindings never match.
 - **Exchange `workflow.events`** (topic, durable) — inbound events. `EventSubscriber.RunRMQ` binds a per-pod queue with `#` to consume all events (auto-ack, fire-and-forget); each delivery feeds both the `EventSubscriber` (wake paused sagas) and the `TriggerDispatcher` (start new sagas).
 - **Queues `saga.advance`, `saga.dlq`, `action.dlq`** (durable). `saga.advance` is the core work queue.
 
@@ -293,10 +293,10 @@ Consuming (`mq/consumer.go`): `ConsumeSagaAdvance` is a competing consumer on `s
 - **Joins** — `checkParentJoin` wakes a parent after its children's join condition is met.
 
 **Workers via gRPC + `clients/go/worker`.** The `action` verb publishes an `ActionPayload` to `action.direct` and pauses the run awaiting the action. A worker built with `clients/go/worker`:
-1. registers its actions over REST (`/api/v1/registry/register`),
-2. declares + binds its `<service>.actions` queue to `action.direct` and consumes it (`prefetch=1`, manual ack),
+1. registers its actions over REST (`/api/v1/registry/register`), unless `SkipRegistration` is set because the actions are registered elsewhere,
+2. declares its queue (`<service>.actions` by default), binds it to `action.direct` once per action name, and consumes it (`prefetch=1`, manual ack),
 3. holds a long-lived gRPC client to the engine.
-On each delivery it deserializes the `ActionPayload`, resolves the handler by action name, and **drives the `ExecuteStep` bidi stream** (`internal/grpc/server.go`, proto `proto/liveness.proto`): worker sends `StartJob{run_id, step_id, attempt}` → engine replies `Acknowledged` → worker may stream `Heartbeat`s → worker sends `Complete{result_json}` or `Error{code, message, retryable}`. The engine bridges `Complete`→`store.CompleteAction` (merge result, then publish `saga.advance` to resume) and `Error`→`store.FailAction` (transition the run to failed; no advance). `CompleteAction`/`FailAction` are no-ops when `attempt` doesn't match the run's `current_attempt`, so late/duplicate deliveries are safe; combined with the worker's idempotency key and RabbitMQ redelivery, this gives at-least-once delivery with idempotent completion.
+On each delivery it deserializes the `ActionPayload` and resolves the handler by the full action name. A compensation runs its handler directly. An action **drives the `ExecuteStep` bidi stream** (`liveness.Server`, proto `proto/liveness.proto`): worker sends `StartJob{run_id, step_id, attempt}` → engine replies `Acknowledged` when the run is paused on that step and attempt (otherwise `NOT_FOUND` / `FAILED_PRECONDITION`, and the worker acks and drops the delivery) → worker may stream `Heartbeat`s → worker sends `Complete{result_json}` or `Error{code, message, retryable}`. `liveness.StoreReporter` bridges `Complete`→`store.CompleteAction` (merge result, then publish `saga.advance` to resume) and `Error`→`store.FailAction` (transition the run to failed) followed by `Coordinator.CompensateFailedStep` (roll back the completed steps; no advance). Refusing reports for a step the run isn't waiting for, plus `CompleteAction`/`FailAction` being no-ops on an `attempt` that doesn't match `current_attempt`, makes late and duplicate deliveries safe; combined with the worker's idempotency key and RabbitMQ redelivery, this gives at-least-once delivery with idempotent completion.
 
 **Completion.** When the loop reaches an `end` step (or a verb pushes the run terminal), `completeRun` emits `step.succeeded` + `run.succeeded`, sets state `succeeded`, and runs `checkParentJoin` so any waiting parent advances. A failed step with no try/catch frame sets state `failed` and likewise notifies the parent. Throughout, every transition appends an immutable `audit.saga_run_events` row, which (via the `010` NOTIFY trigger) streams live to any connected run-inspector WebSocket.
 

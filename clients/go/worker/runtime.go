@@ -37,16 +37,19 @@ import (
 	golog "github.com/Bugs5382/go-log"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 
 	pb "github.com/Bugs5382/go-saga-orchestration/proto/livenesspb"
 	"github.com/Bugs5382/go-saga-orchestration/sagalog"
+	"github.com/Bugs5382/go-saga-orchestration/topology"
 )
 
-// Bootstrap connects to go-saga-orchestration's registry, registers the actions,
-// declares the per-service RabbitMQ queue, opens a long-lived gRPC
-// client to the engine, and runs the consumer loop until ctx is
-// cancelled.
+// Bootstrap registers the actions with the REST registry (unless
+// SkipRegistration is set), declares the worker's RabbitMQ queue bound to
+// each action name, opens a long-lived gRPC client to the engine, and runs
+// the consumer loop until ctx is cancelled.
 func Bootstrap(ctx context.Context, cfg BootstrapConfig) error {
 	if _, ok := sagalog.FromContext(ctx); !ok && cfg.Logger != nil {
 		ctx = sagalog.NewContext(ctx, cfg.Logger)
@@ -56,15 +59,20 @@ func Bootstrap(ctx context.Context, cfg BootstrapConfig) error {
 		lg.Error(err, "worker: invalid config")
 		return err
 	}
-	lg.Info("worker: starting", golog.F("service_version", cfg.ServiceVersion), golog.F("actions", len(cfg.Actions)))
-	// 1. Register actions via REST.
-	if err := registerWithOrchestrator(ctx, cfg); err != nil {
-		lg.Error(err, "worker: register actions failed")
-		return fmt.Errorf("worker: register: %w", err)
+	lg.Info("worker: starting", golog.F("service_version", cfg.ServiceVersion), golog.F("actions", len(cfg.Actions)),
+		golog.F("skip_registration", cfg.SkipRegistration), golog.F("qualified_names", cfg.QualifiedActionNames))
+	// 1. Register actions via REST, unless they are registered elsewhere.
+	if cfg.SkipRegistration {
+		lg.Debug("worker: registration skipped; actions are registered elsewhere")
+	} else {
+		if err := registerWithOrchestrator(ctx, cfg); err != nil {
+			lg.Error(err, "worker: register actions failed")
+			return fmt.Errorf("worker: register: %w", err)
+		}
+		lg.Debug("worker: actions registered")
 	}
-	lg.Debug("worker: actions registered")
 
-	// 2. Open RabbitMQ + the per-service queue. The URL is not logged: it
+	// 2. Open RabbitMQ and the worker's queue. The URL is not logged: it
 	// can carry credentials.
 	rmqConn, err := amqp.Dial(cfg.RmqURL)
 	if err != nil {
@@ -77,12 +85,11 @@ func Bootstrap(ctx context.Context, cfg BootstrapConfig) error {
 		return fmt.Errorf("worker: rabbitmq channel: %w", err)
 	}
 	defer func() { _ = ch.Close() }()
-	queueName := cfg.Service + ".actions"
-	if _, err := ch.QueueDeclare(queueName, true /*durable*/, false, false, false, nil); err != nil {
-		return fmt.Errorf("worker: queue declare: %w", err)
-	}
-	if err := ch.QueueBind(queueName, cfg.Service+".*", "action.direct", false, nil); err != nil {
-		return fmt.Errorf("worker: queue bind: %w", err)
+	queueName := cfg.QueueName()
+	keys := cfg.RoutingKeys()
+	if err := topology.DeclareActionQueue(ch, queueName, keys...); err != nil {
+		lg.Error(err, "worker: declare queue failed", golog.F("queue", queueName))
+		return fmt.Errorf("worker: %w", err)
 	}
 	if err := ch.Qos(1 /*prefetch*/, 0, false); err != nil {
 		return fmt.Errorf("worker: qos: %w", err)
@@ -92,12 +99,14 @@ func Bootstrap(ctx context.Context, cfg BootstrapConfig) error {
 		lg.Error(err, "worker: consume failed", golog.F("queue", queueName))
 		return fmt.Errorf("worker: consume: %w", err)
 	}
-	lg.Debug("worker: rabbitmq queue ready", golog.F("queue", queueName))
+	lg.Debug("worker: rabbitmq queue ready", golog.F("queue", queueName), golog.F("routing_keys", keys))
 
 	// 3. Open the long-lived gRPC client.
-	gconn, err := grpc.NewClient(cfg.GrpcURL,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+	dialOpts := cfg.DialOptions
+	if len(dialOpts) == 0 {
+		dialOpts = []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
+	}
+	gconn, err := grpc.NewClient(cfg.GrpcURL, dialOpts...)
 	if err != nil {
 		lg.Error(err, "worker: grpc client failed", golog.F("grpc_target", cfg.GrpcURL))
 		return fmt.Errorf("worker: grpc dial: %w", err)
@@ -105,10 +114,10 @@ func Bootstrap(ctx context.Context, cfg BootstrapConfig) error {
 	defer func() { _ = gconn.Close() }()
 	client := pb.NewWorkerLivenessClient(gconn)
 
-	// Build the per-action handler lookup.
+	// Handlers answer to the full action name the engine dispatches.
 	handlers := map[string]Handler{}
 	for _, a := range cfg.Actions {
-		handlers[a.Name] = a.Handler
+		handlers[cfg.routingKey(a)] = a.Handler
 	}
 
 	// 4. Consumer loop.
@@ -206,9 +215,10 @@ func consumeLoop(ctx context.Context, deliveries <-chan amqp.Delivery, dispatch 
 	}
 }
 
-// processDelivery deserializes the ActionPayload, looks up the handler,
-// drives the gRPC stream (Start -> Heartbeats -> Complete/Error), and ACKs
-// the RabbitMQ message.
+// processDelivery deserializes the ActionPayload, looks up the handler by the
+// full action name, and settles the RabbitMQ message. An action drives the
+// gRPC stream (Start -> run handler -> Complete/Error); a compensation runs
+// its handler directly, since there is no awaited step to report on.
 func processDelivery(ctx context.Context, d amqp.Delivery, handlers map[string]Handler, client pb.WorkerLivenessClient) {
 	lg := sagalog.For(ctx, nil)
 	var payload ActionPayload
@@ -220,27 +230,59 @@ func processDelivery(ctx context.Context, d amqp.Delivery, handlers map[string]H
 	}
 	lg = lg.With(golog.F("run_id", payload.RunID), golog.F("step_id", payload.StepID),
 		golog.F("attempt", payload.Attempt), golog.F("action", payload.Action))
-	lg.Debug("worker: delivery received", golog.F("dry_run", payload.DryRun), golog.F("redelivered", d.Redelivered))
-	// Resolve handler by the suffix after the service prefix.
-	// payload.Action format: "<service>.<action_name>" — handlers map is keyed by action_name only.
-	name := payload.Action
-	if dot := strings.Index(name, "."); dot >= 0 {
-		name = name[dot+1:]
-	}
-	h, ok := handlers[name]
+	compensation := payload.IsCompensation()
+	lg.Debug("worker: delivery received", golog.F("dry_run", payload.DryRun), golog.F("redelivered", d.Redelivered),
+		golog.F("compensation", compensation))
+	h, ok := handlers[payload.Action]
 	if !ok {
 		lg.Error(nil, "worker: no handler for action")
 		_ = d.Nack(false, false)
 		return
 	}
 	started := time.Now()
+	if compensation {
+		runCompensation(ctx, lg, d, payload, h, started)
+		return
+	}
 	if err := driveStream(ctx, lg, payload, h, client); err != nil {
+		if refused(err) {
+			// The run isn't waiting for this step (stale, duplicate or
+			// misrouted). Requeueing would loop forever.
+			lg.Warn("worker: engine refused the report; dropping the delivery", golog.F("error", err.Error()),
+				golog.F("duration_ms", time.Since(started).Milliseconds()))
+			_ = d.Ack(false)
+			return
+		}
 		lg.Error(err, "worker: stream failed; nacking with requeue", golog.F("duration_ms", time.Since(started).Milliseconds()))
 		_ = d.Nack(false, true /*requeue=true -> retry via redelivery*/)
 		return
 	}
 	lg.Debug("worker: delivery settled", golog.F("duration_ms", time.Since(started).Milliseconds()))
 	_ = d.Ack(false)
+}
+
+// runCompensation runs a compensation handler. Success acks; a failure is
+// nacked without requeue so it lands in the dead-letter queue, if the queue
+// has one, for a person to look at.
+func runCompensation(ctx context.Context, lg golog.Logger, d amqp.Delivery, payload ActionPayload, h Handler, started time.Time) {
+	if _, err := h.Execute(ctx, payload); err != nil {
+		lg.Error(err, "worker: compensation failed; nacking without requeue",
+			golog.F("duration_ms", time.Since(started).Milliseconds()))
+		_ = d.Nack(false, false)
+		return
+	}
+	lg.Info("worker: compensation done", golog.F("duration_ms", time.Since(started).Milliseconds()))
+	_ = d.Ack(false)
+}
+
+// refused reports whether err is the engine refusing a report: the run is
+// unknown or isn't waiting for this step and attempt.
+func refused(err error) bool {
+	switch status.Code(err) {
+	case codes.NotFound, codes.FailedPrecondition:
+		return true
+	}
+	return false
 }
 
 // driveStream opens an ExecuteStep stream, sends Start, runs the handler,

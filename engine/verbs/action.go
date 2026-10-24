@@ -126,13 +126,17 @@ func (v ActionVerb) Execute(ctx context.Context, run domain.SagaRun, step domain
 
 // CompensationPayload is the body of a compensation action dispatch. It mirrors
 // ActionPayload but carries no attempt/idempotency machinery: compensation is a
-// fire-and-forget rollback dispatch, not an awaited step.
+// fire-and-forget rollback dispatch, not an awaited step. Compensation is
+// always true, so a worker reading both kinds from one queue can tell them
+// apart (an ActionPayload never sets it and always has an attempt of 1 or
+// more).
 type CompensationPayload struct {
-	RunID  string         `json:"run_id"`
-	StepID string         `json:"step_id"` // the step being compensated
-	Action string         `json:"action"`  // "<service>.<action_name>"
-	Inputs map[string]any `json:"inputs"`
-	DryRun bool           `json:"dry_run,omitempty"`
+	RunID        string         `json:"run_id"`
+	StepID       string         `json:"step_id"` // the step being compensated
+	Action       string         `json:"action"`  // "<service>.<action_name>"
+	Inputs       map[string]any `json:"inputs"`
+	DryRun       bool           `json:"dry_run,omitempty"`
+	Compensation bool           `json:"compensation"`
 }
 
 // DispatchCompensation sends a step's compensation action to its worker over the
@@ -148,11 +152,12 @@ func (v ActionVerb) DispatchCompensation(ctx context.Context, runID, stepID, act
 		return fmt.Errorf("compensation: bad action format %q (want service.name)", action)
 	}
 	payload := CompensationPayload{
-		RunID:  runID,
-		StepID: stepID,
-		Action: action,
-		Inputs: inputs,
-		DryRun: dryRun,
+		RunID:        runID,
+		StepID:       stepID,
+		Action:       action,
+		Inputs:       inputs,
+		DryRun:       dryRun,
+		Compensation: true,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {

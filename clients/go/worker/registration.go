@@ -25,8 +25,10 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 import (
 	"fmt"
+	"strings"
 
 	golog "github.com/Bugs5382/go-log"
+	"google.golang.org/grpc"
 )
 
 // Action declares one handler the worker will register with go-saga-orchestration
@@ -70,6 +72,54 @@ type BootstrapConfig struct {
 	// (sagalog.NewContext), which takes precedence. Build one with
 	// golog.NewLogger to honour LOG_LEVEL and LOG_FORMAT.
 	Logger golog.Logger
+
+	// SkipRegistration skips the POST to the REST registry, for an engine
+	// whose actions are registered somewhere else (an application that embeds
+	// the engine and keeps its own verb registry). RegistryURL is then not
+	// required.
+	SkipRegistration bool
+
+	// QualifiedActionNames makes each Action.Name the full action name the
+	// engine dispatches (the step's action and the routing key), used as is,
+	// for example "com.example.billing.charge". By default the name is
+	// prefixed with Service: Name "charge" in Service "billing" is
+	// "billing.charge".
+	QualifiedActionNames bool
+
+	// Queue is the durable RabbitMQ queue the worker consumes. Default
+	// "<Service>.actions".
+	Queue string
+
+	// DialOptions replace the gRPC dial options used to reach GrpcURL, for
+	// TLS or per-RPC credentials (a projected ServiceAccount token, for
+	// example). Default: plaintext (insecure credentials).
+	DialOptions []grpc.DialOption
+}
+
+// RoutingKeys returns the full action name of each Action, in order: the
+// routing keys the worker's queue is bound to and the names its handlers
+// answer to.
+func (c BootstrapConfig) RoutingKeys() []string {
+	keys := make([]string, 0, len(c.Actions))
+	for _, a := range c.Actions {
+		keys = append(keys, c.routingKey(a))
+	}
+	return keys
+}
+
+func (c BootstrapConfig) routingKey(a Action) string {
+	if c.QualifiedActionNames {
+		return a.Name
+	}
+	return c.Service + "." + a.Name
+}
+
+// QueueName returns Queue, or "<Service>.actions" when it is empty.
+func (c BootstrapConfig) QueueName() string {
+	if c.Queue != "" {
+		return c.Queue
+	}
+	return c.Service + ".actions"
 }
 
 // Validate runs basic sanity checks on the config. Bootstrap calls this
@@ -78,8 +128,8 @@ func (c BootstrapConfig) Validate() error {
 	if c.Service == "" {
 		return fmt.Errorf("worker: Service required")
 	}
-	if c.RegistryURL == "" {
-		return fmt.Errorf("worker: RegistryURL required")
+	if c.RegistryURL == "" && !c.SkipRegistration {
+		return fmt.Errorf("worker: RegistryURL required (or set SkipRegistration)")
 	}
 	if c.RmqURL == "" {
 		return fmt.Errorf("worker: RmqURL required")
@@ -102,8 +152,9 @@ func (c BootstrapConfig) Validate() error {
 		if a.Handler == nil {
 			return fmt.Errorf("worker: Actions[%d] (%s) missing Handler", i, a.Name)
 		}
+		if c.QualifiedActionNames && !strings.Contains(a.Name, ".") {
+			return fmt.Errorf("worker: Actions[%d] qualified name %q has no dot (want service.name)", i, a.Name)
+		}
 	}
 	return nil
 }
-
-// Bootstrap is implemented in runtime.go (Tasks 8 + 9).

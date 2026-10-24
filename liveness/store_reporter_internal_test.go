@@ -1,4 +1,4 @@
-package grpc
+package liveness
 
 /*
 MIT License
@@ -67,7 +67,7 @@ func newTestServer(t *testing.T, s *memory.Store, pub AdvancePublisher) (pb.Work
 	t.Helper()
 	lis := bufconn.Listen(1 << 20)
 	srv := grpc.NewServer()
-	Register(srv, s, pub)
+	Register(srv, NewServer(&StoreReporter{Store: s, Advance: pub}, nil))
 	go srv.Serve(lis) //nolint:errcheck
 	dialer := func(context.Context, string) (net.Conn, error) { return lis.Dial() }
 	conn, err := grpc.NewClient("passthrough://bufnet",
@@ -92,6 +92,7 @@ func TestExecuteStep_CompleteHappyPath(t *testing.T) {
 	// Seed a run + put it in awaiting-action state.
 	run := domain.NewSagaRun("wf", uuid.New(), nil, map[string]any{})
 	_ = s.CreateRun(ctx, run)
+	_ = s.UpdateRunState(ctx, run.ID, domain.RunStateRunning, "s1")
 	_ = s.MarkAwaitingAction(ctx, run.ID, "test.echo", 1)
 
 	pub := &capPub{}
@@ -150,6 +151,7 @@ func TestExecuteStep_ErrorPath(t *testing.T) {
 	s := memory.New()
 	run := domain.NewSagaRun("wf", uuid.New(), nil, map[string]any{})
 	_ = s.CreateRun(ctx, run)
+	_ = s.UpdateRunState(ctx, run.ID, domain.RunStateRunning, "s1")
 	_ = s.MarkAwaitingAction(ctx, run.ID, "test.echo", 1)
 
 	pub := &capPub{}

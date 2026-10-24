@@ -180,16 +180,17 @@ The library itself never calls `Init`. Embedders keep their own OpenTelemetry se
 - `api` — REST handlers, router, and OpenAPI spec (`api/openapi.yaml`).
 - `licensing`, `secrets`, `clock` — resolver interfaces and stubs.
 - `sagalog`, `sagalog/sagalogtest` — logger carrier and quiet default, plus a recording logger for tests.
+- `liveness` — the gRPC worker liveness server (`ExecuteStep`) and its store-backed reporter, for serving workers from your own application.
+- `topology` — RabbitMQ exchange and queue names, the engine's declarations, and worker action-queue bindings.
 
 **Infrastructure (not for direct import)**:
-- `internal/mq` — RabbitMQ topology, publisher, consumer.
+- `internal/mq` — RabbitMQ publisher, consumer.
 - `internal/cel`, `internal/rules` — CEL evaluator + decision-table rule evaluation.
-- `internal/grpc` — gRPC worker liveness server.
 - `internal/config`, `internal/logging`, `internal/telemetry` — environment config, the service binaries' go-log logger, and their go-otel setup.
 
 **Binaries and supporting dirs**:
 - `cmd/api`, `cmd/engine` — the two service binaries (reference service-mode apps).
-- `clients/go/worker` — Go worker SDK (nested module) for consuming services.
+- `clients/go/worker` — Go worker SDK for consuming services (a package in this module).
 - `proto/` — gRPC worker liveness service + generated code.
 - `test/e2e` — end-to-end tests (require Postgres + RabbitMQ).
 - `deployments/helm` — Helm chart deploying the api and engine (see [Deployment](https://bugs5382.github.io/go-saga-orchestration/docs/deployment)).

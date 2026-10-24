@@ -40,9 +40,11 @@ bundle of every page at `/llms-full.txt` (with an index at `/llms.txt`).
 - `engine/`, `engine/verbs/` - coordinator + a verb for every step type except `end` (the coordinator finishes the run itself) + `verbs.HandlerFunc`.
 - `store/`, `store/memory`, `store/postgres` - `Store` interface, in-memory impl, Postgres impl + migrations.
 - `api/` - REST handlers, router, and `api/openapi.yaml`.
-- `internal/{cel,rules,mq,grpc,config,logging}` - infrastructure (not for direct import).
+- `liveness/` - public gRPC worker liveness server + store-backed reporter.
+- `topology/` - public RabbitMQ exchange/queue names and declarations.
+- `internal/{cel,rules,mq,config,logging}` - infrastructure (not for direct import).
 - `cmd/api`, `cmd/engine` - the two service binaries.
-- `clients/go/worker` - Go worker SDK (nested module).
+- `clients/go/worker` - Go worker SDK (a package in the main module).
 - `proto/` - gRPC worker liveness service + generated code.
 - `test/` - unit tests + fixtures; `test/e2e` - end-to-end tests.
 
@@ -53,9 +55,10 @@ Commands are defined in `Taskfile.yaml` (run with `go-task`):
 - Build: `task build` (`go build ./...`)
 - Test: `task test` (`go test -race ./...`; CI runs the tests with `-race` too). The `test/e2e` suite runs against the in-memory store, so it
   needs no Postgres/RabbitMQ; the service binaries and `cmd/engine` do.
-  The store tests against real servers skip unless their URL is set: `TEST_POSTGRES_DSN` (a
+  The tests against real servers skip unless their URL is set: `TEST_POSTGRES_DSN` (a
   `postgres://` URL; each `store/postgres` test creates and drops its own database, so the role needs
-  `CREATEDB`) and `TEST_REDIS_URL`. CI starts both as service containers.
+  `CREATEDB`), `TEST_REDIS_URL`, and `TEST_RABBITMQ_URL` (an `amqp://` URL, for the topology and worker
+  tests). CI starts all three as service containers.
 - Lint: `task lint` (gofmt check, `golangci-lint run`, `yamllint .`)
 - License headers: `task license` (CI dry-run check) / `task license:fix` (inject MIT headers).
 
