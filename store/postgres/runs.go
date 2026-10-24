@@ -135,14 +135,20 @@ func (s *Store) GetRun(ctx context.Context, id uuid.UUID) (domain.SagaRun, error
 // when the new state is terminal.
 func (s *Store) UpdateRunState(ctx context.Context, id uuid.UUID, state domain.RunState, currentStep string) error {
 	terminal := state.IsTerminal()
-	_, err := s.pool.Exec(ctx, `
+	ct, err := s.pool.Exec(ctx, `
 		UPDATE runtime.saga_runs
 		   SET state = $2,
 		       current_step = NULLIF($3, ''),
 		       last_event_at = now(),
 		       terminal_at = CASE WHEN $4 THEN now() ELSE terminal_at END
 		 WHERE id = $1`, id, state, currentStep, terminal)
-	return err
+	if err != nil {
+		return fmt.Errorf("update run state: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return store.ErrNotFound{Entity: "saga_run", ID: id.String()}
+	}
+	return nil
 }
 
 // Cancel terminates an in-flight run: terminal cancelled + terminal_at,
@@ -290,13 +296,16 @@ func (s *Store) SetPausedAwaitingEventWithDeadline(ctx context.Context, runID uu
 }
 
 // ClearPause returns the run to the running state and clears all wakeup and
-// await markers.
+// await markers, or returns ErrNotFound.
 func (s *Store) ClearPause(ctx context.Context, runID uuid.UUID) error {
-	_, err := s.pool.Exec(ctx,
+	ct, err := s.pool.Exec(ctx,
 		`UPDATE runtime.saga_runs SET state='running', wakeup_at=NULL, awaited_signal=NULL, awaited_event_topic=NULL, awaited_event_headers=NULL, last_event_at=now() WHERE id=$1`,
 		runID)
 	if err != nil {
 		return fmt.Errorf("clear pause: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return store.ErrNotFound{Entity: "saga_run", ID: runID.String()}
 	}
 	return nil
 }
@@ -409,11 +418,14 @@ func (s *Store) TryConsumeAwaitedSignal(ctx context.Context, runID uuid.UUID, si
 // WakeFromExternal clears all await markers and wakeup_at while leaving the run
 // paused, so the Advance loop resumes it.
 func (s *Store) WakeFromExternal(ctx context.Context, runID uuid.UUID) error {
-	_, err := s.pool.Exec(ctx,
+	ct, err := s.pool.Exec(ctx,
 		`UPDATE runtime.saga_runs SET awaited_signal=NULL, awaited_event_topic=NULL, awaited_event_headers=NULL, wakeup_at=NULL, last_event_at=now() WHERE id=$1`,
 		runID)
 	if err != nil {
 		return fmt.Errorf("wake from external: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return store.ErrNotFound{Entity: "saga_run", ID: runID.String()}
 	}
 	return nil
 }
@@ -631,6 +643,15 @@ func (s *Store) UpdateRunVariables(ctx context.Context, runID uuid.UUID, merge m
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
+	var locked uuid.UUID
+	err = tx.QueryRow(ctx, `SELECT id FROM runtime.saga_runs WHERE id = $1 FOR UPDATE`, runID).Scan(&locked)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.ErrNotFound{Entity: "saga_run", ID: runID.String()}
+	}
+	if err != nil {
+		return fmt.Errorf("lock run: %w", err)
+	}
+
 	if len(flat) > 0 {
 		flatJSON, err := json.Marshal(flat)
 		if err != nil {
@@ -647,17 +668,23 @@ func (s *Store) UpdateRunVariables(ctx context.Context, runID uuid.UUID, merge m
 		if err != nil {
 			return fmt.Errorf("marshal dotted value: %w", err)
 		}
-		path := "{"
-		for i, p := range d.parts {
-			if i > 0 {
-				path += ","
+		// jsonb_set only creates the last path element, so make every
+		// parent an object first (replacing a non-object, as the in-memory
+		// store does) before setting the leaf.
+		for i := 1; i < len(d.parts); i++ {
+			if _, err := tx.Exec(ctx, `
+				UPDATE runtime.saga_runs
+				   SET variables = jsonb_set(variables, $1::text[],
+				       CASE WHEN jsonb_typeof(variables #> $1::text[]) = 'object'
+				            THEN variables #> $1::text[] ELSE '{}'::jsonb END, true)
+				 WHERE id = $2`,
+				d.parts[:i], runID); err != nil {
+				return fmt.Errorf("merge dotted %v: create parent: %w", d.parts, err)
 			}
-			path += p
 		}
-		path += "}"
 		if _, err := tx.Exec(ctx,
 			`UPDATE runtime.saga_runs SET variables = jsonb_set(variables, $1::text[], $2::jsonb, true), last_event_at = now() WHERE id = $3`,
-			path, valJSON, runID); err != nil {
+			d.parts, valJSON, runID); err != nil {
 			return fmt.Errorf("merge dotted %v: %w", d.parts, err)
 		}
 	}
@@ -882,7 +909,7 @@ func (s *Store) MarkAwaitingAction(ctx context.Context, runID uuid.UUID, dispatc
 // If attempt does not match current_attempt the row is unchanged (late delivery).
 func (s *Store) CompleteAction(ctx context.Context, runID uuid.UUID, attempt int, result map[string]any) error {
 	if len(result) == 0 {
-		_, err := s.pool.Exec(ctx, `
+		ct, err := s.pool.Exec(ctx, `
 			UPDATE runtime.saga_runs
 			   SET awaited_action_dispatch = NULL,
 			       wakeup_at = now(),
@@ -892,13 +919,13 @@ func (s *Store) CompleteAction(ctx context.Context, runID uuid.UUID, attempt int
 		if err != nil {
 			return fmt.Errorf("complete action (no result): %w", err)
 		}
-		return nil
+		return s.notFoundUnlessRunExists(ctx, ct.RowsAffected(), runID)
 	}
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
 		return fmt.Errorf("complete action: marshal result: %w", err)
 	}
-	_, err = s.pool.Exec(ctx, `
+	ct, err := s.pool.Exec(ctx, `
 		UPDATE runtime.saga_runs
 		   SET awaited_action_dispatch = NULL,
 		       wakeup_at = now(),
@@ -908,6 +935,23 @@ func (s *Store) CompleteAction(ctx context.Context, runID uuid.UUID, attempt int
 		runID, attempt, resultJSON)
 	if err != nil {
 		return fmt.Errorf("complete action: %w", err)
+	}
+	return s.notFoundUnlessRunExists(ctx, ct.RowsAffected(), runID)
+}
+
+// notFoundUnlessRunExists turns a guarded UPDATE that touched no row into
+// ErrNotFound when the run is missing, and nil when the guard alone skipped
+// it (a late or repeated delivery).
+func (s *Store) notFoundUnlessRunExists(ctx context.Context, affected int64, runID uuid.UUID) error {
+	if affected > 0 {
+		return nil
+	}
+	var exists bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM runtime.saga_runs WHERE id=$1)`, runID).Scan(&exists); err != nil {
+		return fmt.Errorf("run existence check: %w", err)
+	}
+	if !exists {
+		return store.ErrNotFound{Entity: "saga_run", ID: runID.String()}
 	}
 	return nil
 }
