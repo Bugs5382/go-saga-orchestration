@@ -9,19 +9,19 @@ plumbing so your code only contains business logic.
 
 A single `worker.Bootstrap` call handles:
 
-- POSTing the service's action declarations to `go-saga-orchestration/api/v1/registry/register`.
-- Declaring the per-service RabbitMQ queue `<service>.actions` bound to `action.direct`.
+- POSTing the service's action declarations to `go-saga-orchestration/api/v1/registry/register` (skip it with `SkipRegistration` when the actions are registered elsewhere).
+- Declaring a durable RabbitMQ queue (`<service>.actions` by default) bound to `action.direct` once per action name.
 - Opening a gRPC `ExecuteStep` stream per dispatch and driving it (Start → run handler → Complete/Error).
-- Calling the host service's `Handler.Execute(ctx, payload)` (or `Preview` if dry-run).
-- ACK/NACK of the RabbitMQ message based on the handler outcome.
+- Calling the host service's `Handler.Execute(ctx, payload)`. A compensation dispatch (`payload.IsCompensation()`) runs the handler with no stream.
+- ACK/NACK of the RabbitMQ message based on the handler outcome. A dispatch the engine refuses (the run isn't waiting for that step) is acked and dropped.
 
 Optional idempotency dedupe is available by wrapping handlers with
 `worker.Wrap` (see below).
 
 ## Install / import
 
-This package is its own Go module (it has its own `go.mod`), so add it
-directly:
+This package is part of the main `go-saga-orchestration` module, so adding it
+pulls in the module:
 
 ```sh
 go get github.com/Bugs5382/go-saga-orchestration/clients/go/worker
@@ -81,6 +81,43 @@ func main() {
     }
 }
 ```
+
+## Workers for an embedded engine
+
+When an application embeds the engine and keeps its own verb registry, the
+worker doesn't register over REST and its actions carry the full names the
+registry holds:
+
+```go
+cfg := worker.BootstrapConfig{
+    Service:              "billing",
+    RmqURL:               "amqp://guest:guest@rabbitmq:5672/",
+    GrpcURL:              "my-app:9090",
+    SkipRegistration:     true,              // no RegistryURL needed
+    QualifiedActionNames: true,              // Name is the routing key, used as is
+    Queue:                "billing-worker",  // default "<Service>.actions"
+    DialOptions: []grpc.DialOption{          // default: plaintext
+        grpc.WithTransportCredentials(creds),
+        grpc.WithPerRPCCredentials(tokenSource),
+    },
+    Actions: []worker.Action{
+        {Name: "com.example.billing.charge", Handler: charge},
+        {Name: "com.example.billing.refund", Handler: refund},
+    },
+}
+```
+
+| Field | Default | Purpose |
+|---|---|---|
+| `SkipRegistration` | `false` | Skip the REST registration; `RegistryURL` is then optional. |
+| `QualifiedActionNames` | `false` | Use each `Action.Name` as the full action name. By default it is prefixed with `Service` and a dot. |
+| `Queue` | `<Service>.actions` | The durable queue the worker consumes. |
+| `DialOptions` | plaintext | gRPC dial options for `GrpcURL`, for TLS or per-RPC credentials. |
+
+`cfg.RoutingKeys()` returns the action names the queue is bound to, and
+`cfg.QueueName()` the queue.
+
+## Examples
 
 See `example_test.go` for runnable, self-contained examples (handler results,
 `CodedError`, and idempotency) that don't require a live broker or engine.
