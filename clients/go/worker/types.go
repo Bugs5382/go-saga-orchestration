@@ -64,6 +64,17 @@ type ActionPayload struct {
 	Action         string         `json:"action"` // "<service>.<action_name>"
 	Inputs         map[string]any `json:"inputs"`
 	DryRun         bool           `json:"dry_run,omitempty"`
+	// Compensation is true for a compensation dispatch: undo what StepID
+	// did. A compensation carries no Attempt or IdempotencyKey and is not
+	// reported on the liveness stream.
+	Compensation bool `json:"compensation,omitempty"`
+}
+
+// IsCompensation reports whether p is a compensation dispatch. Payloads from
+// engines older than the compensation flag are recognised by their missing
+// attempt.
+func (p ActionPayload) IsCompensation() bool {
+	return p.Compensation || p.Attempt == 0
 }
 
 // Result is what a successful Handler.Execute returns; merged into
