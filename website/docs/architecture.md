@@ -251,7 +251,7 @@ An application can run the saga engine entirely in-process without a separate se
 In-memory implementation (`store.go`, plus `triggers.go`). Used by unit/e2e tests and by `saga.InMemory()`. Note: in the memory store, `UpsertWorkflowDefinition` may mint a new UUID per call (acceptable because runs only need *some* `definition_id` pointer).
 
 ### `store/postgres`
-Production implementation, split by concern: `pool.go` (pgx pool / `Open`), `definitions.go`, `runs.go`, `events.go`, `rules.go`, `registry.go`, `triggers.go`, `user_tasks.go`, and `migrate.go`. `Open` connects; `Migrate(dsn)` applies embedded migrations on every boot via golang-migrate's pgx5 driver (idempotent, no-ops at head). The postgres `UpsertWorkflowDefinition` keeps a stable id per `(workflow_id, version)`.
+Production implementation, split by concern: `pool.go` (pgx pool / `Open`), `definitions.go`, `runs.go`, `events.go`, `rules.go`, `registry.go`, `triggers.go`, `user_tasks.go`, and `migrate.go`. `Open` connects; `Migrate(dsn)` applies embedded migrations on every boot via golang-migrate's pgx5 driver (idempotent, no-ops at head). It records its state in `public.schema_migrations`, pinned to `public` so the connection's `search_path` never moves it; a database whose table an older release created in another schema on the `search_path` has it moved to `public` on the next boot. The postgres `UpsertWorkflowDefinition` keeps a stable id per `(workflow_id, version)`.
 
 ### Migrations (`store/postgres/migrations`)
 Numbered `NNN_*.up.sql` / `.down.sql`, embedded in the binary. They establish three schemas — `definitions`, `runtime`, `audit` — and evolve them:
