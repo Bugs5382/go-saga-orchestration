@@ -50,12 +50,12 @@ import (
 	"github.com/Bugs5382/go-saga-orchestration/engine/verbs"
 	"github.com/Bugs5382/go-saga-orchestration/internal/config"
 	"github.com/Bugs5382/go-saga-orchestration/internal/dispatch"
-	grpcsrv "github.com/Bugs5382/go-saga-orchestration/internal/grpc"
 	"github.com/Bugs5382/go-saga-orchestration/internal/logging"
 	"github.com/Bugs5382/go-saga-orchestration/internal/mq"
 	"github.com/Bugs5382/go-saga-orchestration/internal/storefactory"
 	"github.com/Bugs5382/go-saga-orchestration/internal/telemetry"
 	"github.com/Bugs5382/go-saga-orchestration/licensing"
+	"github.com/Bugs5382/go-saga-orchestration/liveness"
 	"github.com/Bugs5382/go-saga-orchestration/sagalog"
 	"github.com/Bugs5382/go-saga-orchestration/secrets"
 	"github.com/Bugs5382/go-saga-orchestration/store/postgres"
@@ -209,7 +209,11 @@ func main() {
 		logger.Fatal(err, "grpc listen", golog.F("addr", grpcAddr))
 	}
 	grpcServer := googlegrpc.NewServer(googlegrpc.StatsHandler(gootel.GRPCServerStatsHandler()))
-	grpcsrv.RegisterWithLogger(grpcServer, st, pub, logger)
+	// Worker reports land in the store; a worker's failure compensates the
+	// steps that finished before it.
+	liveness.Register(grpcServer, liveness.NewServer(&liveness.StoreReporter{
+		Store: st, Advance: pub, Compensator: coord, Logger: logger,
+	}, logger))
 	go func() {
 		logger.Info("grpc server listening", golog.F("addr", grpcAddr))
 		if err := grpcServer.Serve(grpcLis); err != nil {

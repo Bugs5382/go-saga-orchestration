@@ -1,8 +1,13 @@
-// Package grpc wires the engine-side gRPC server. Workers connect via
-// ExecuteStep streams; the server bridges WorkerEvent messages to the
-// engine's store hooks (CompleteAction / FailAction) and publishes
-// saga.advance to wake paused-on-action sagas.
-package grpc
+// Package liveness serves the WorkerLiveness gRPC service (saga.v1) that
+// action workers use to report on the steps the engine dispatched to them.
+//
+// The stream protocol lives in Server; what a report does lives behind the
+// Reporter interface. StoreReporter is the default: it checks the run is
+// waiting for the reported step, records the outcome in a store.Store, wakes
+// the run on success, and compensates on failure. An application that embeds
+// the engine and keeps its own bookkeeping (a verb registry elsewhere, its own
+// audit or gating) can pass its own Reporter, usually wrapping StoreReporter.
+package liveness
 
 /*
 MIT License
@@ -31,152 +36,169 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	golog "github.com/Bugs5382/go-log"
 	"io"
 
+	golog "github.com/Bugs5382/go-log"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	pb "github.com/Bugs5382/go-saga-orchestration/proto/livenesspb"
 	"github.com/Bugs5382/go-saga-orchestration/sagalog"
-	"github.com/Bugs5382/go-saga-orchestration/store"
 )
 
-// AdvancePublisher is the minimum surface Server needs to wake sagas
-// after a worker completes/fails an action.
-type AdvancePublisher interface {
-	PublishSagaAdvance(ctx context.Context, runID string) error
+var (
+	// ErrRunNotFound is returned by a Reporter for a run it doesn't know. The
+	// server answers it with codes.NotFound.
+	ErrRunNotFound = errors.New("liveness: run not found")
+	// ErrStepNotAwaited is returned by a Reporter when the run isn't waiting
+	// for the reported step and attempt (a stale, duplicate or misrouted
+	// report). The server answers it with codes.FailedPrecondition; a worker
+	// should acknowledge the dispatch and drop it.
+	ErrStepNotAwaited = errors.New("liveness: step not awaited")
+)
+
+// Reporter takes workers' reports on the steps they were sent.
+//
+// CheckStep runs when a worker starts a job, before it is acknowledged.
+// CompleteStep and FailStep run on the terminal event; implementations
+// should check again, since time passes between start and finish. Return an
+// error wrapping ErrRunNotFound or ErrStepNotAwaited to refuse a report; any
+// other error is answered with codes.Internal and its text is not sent to the
+// worker.
+type Reporter interface {
+	CheckStep(ctx context.Context, runID uuid.UUID, stepID string, attempt int) error
+	CompleteStep(ctx context.Context, runID uuid.UUID, stepID string, attempt int, result map[string]any) error
+	FailStep(ctx context.Context, runID uuid.UUID, stepID string, attempt int, code, message string, retryable bool) error
 }
 
-// Server wires WorkerLiveness.ExecuteStep to the engine's store hooks.
+// Server implements pb.WorkerLivenessServer over a Reporter.
 type Server struct {
 	pb.UnimplementedWorkerLivenessServer
-	S         store.Store
-	Publisher AdvancePublisher
-	Logger    golog.Logger // optional; nil = silent unless the stream context carries a logger
+	reporter Reporter
+	log      golog.Logger
 }
 
-// Register attaches Server to a gRPC server with no logger.
-func Register(grpcServer *grpc.Server, s store.Store, pub AdvancePublisher) {
-	RegisterWithLogger(grpcServer, s, pub, nil)
+// NewServer returns a Server that hands reports to r and logs to l. A nil l
+// is silent unless a stream's context carries a logger (sagalog.NewContext).
+func NewServer(r Reporter, l golog.Logger) *Server {
+	return &Server{reporter: r, log: l}
 }
 
-// RegisterWithLogger attaches Server to a gRPC server, logging to l. A nil l
-// is silent unless a stream's context carries a logger.
-func RegisterWithLogger(grpcServer *grpc.Server, s store.Store, pub AdvancePublisher, l golog.Logger) {
-	pb.RegisterWorkerLivenessServer(grpcServer, &Server{S: s, Publisher: pub, Logger: l})
+// Register attaches srv to a gRPC server.
+func Register(gs grpc.ServiceRegistrar, srv *Server) {
+	pb.RegisterWorkerLivenessServer(gs, srv)
 }
 
-// ExecuteStep is the bidi RPC workers use to report progress on a
-// dispatched action. Frame protocol:
+// statusOf maps a Reporter error to the gRPC status the worker receives.
+func statusOf(err error) error {
+	switch {
+	case errors.Is(err, ErrRunNotFound):
+		return status.Error(codes.NotFound, err.Error())
+	case errors.Is(err, ErrStepNotAwaited):
+		return status.Error(codes.FailedPrecondition, err.Error())
+	default:
+		return status.Error(codes.Internal, "liveness: the report could not be recorded")
+	}
+}
+
+// ExecuteStep is the bidirectional RPC workers use to report on a dispatched
+// action. Frame protocol:
 //  1. Worker sends StartJob{run_id, step_id, attempt}.
-//  2. Server replies Acknowledged{}.
+//  2. Server checks the run is waiting for that step and attempt, then
+//     replies Acknowledged{}; otherwise it ends the stream with NotFound or
+//     FailedPrecondition.
 //  3. Worker streams Heartbeat{} messages while executing (optional).
-//  4. Worker sends Complete{result_json} (success) OR Error{code, message, retryable} (failure).
+//  4. Worker sends Complete{result_json} (success) OR Error{code, message,
+//     retryable} (failure).
 //  5. Server processes the terminal message and ends the stream.
 //
-// Errors at the gRPC layer (network drop, decode failures) leave the
-// saga in awaiting-action state — RabbitMQ redelivery + the worker's
-// idempotency wrapper handle retries.
+// Transport errors (network drop, EOF before a terminal message) leave the run
+// waiting; redelivery of the dispatch and the worker's idempotency handle the
+// retry.
 func (s *Server) ExecuteStep(stream pb.WorkerLiveness_ExecuteStepServer) error {
 	ctx := stream.Context()
-	lg := sagalog.For(ctx, s.Logger)
+	lg := sagalog.For(ctx, s.log)
 	var (
-		runIDStr string
-		stepID   string
-		attempt  int32
-		started  bool
+		runID   uuid.UUID
+		stepID  string
+		attempt int
+		started bool
 	)
-	lg.Debug("grpc: worker stream opened")
+	lg.Debug("liveness: worker stream opened")
 	for {
 		ev, err := stream.Recv()
-		if err == io.EOF {
-			lg.Debug("grpc: worker stream closed", golog.F("run_id", runIDStr), golog.F("step_id", stepID))
+		if errors.Is(err, io.EOF) {
+			lg.Debug("liveness: worker stream closed")
 			return nil
 		}
 		if err != nil {
-			lg.Error(err, "grpc: recv", golog.F("run_id", runIDStr), golog.F("step_id", stepID))
+			lg.Error(err, "liveness: recv failed")
 			return err
 		}
 		switch e := ev.Event.(type) {
 		case *pb.WorkerEvent_Start:
 			if started {
-				err := errors.New("grpc: duplicate StartJob")
-				lg.Warn("grpc: duplicate StartJob; closing stream", golog.F("run_id", runIDStr), golog.F("step_id", stepID))
-				return err
+				lg.Warn("liveness: duplicate StartJob; closing stream")
+				return status.Error(codes.InvalidArgument, "liveness: duplicate StartJob")
 			}
-			started = true
-			runIDStr = e.Start.RunId
-			stepID = e.Start.StepId
-			attempt = e.Start.Attempt
-			lg = lg.With(golog.F("run_id", runIDStr), golog.F("step_id", stepID), golog.F("attempt", attempt))
-			lg.Debug("grpc: worker started job")
-			// Acknowledge.
-			if err := stream.Send(&pb.EngineEvent{
-				Event: &pb.EngineEvent_Ack{Ack: &pb.Acknowledged{}},
-			}); err != nil {
-				lg.Error(err, "grpc: send ack failed")
+			id, err := uuid.Parse(e.Start.GetRunId())
+			if err != nil {
+				lg.Warn("liveness: StartJob run id is not a uuid")
+				return status.Error(codes.InvalidArgument, "liveness: run_id is not a uuid")
+			}
+			runID, stepID, attempt, started = id, e.Start.GetStepId(), int(e.Start.GetAttempt()), true
+			lg = lg.With(golog.F("run_id", runID.String()), golog.F("step_id", stepID), golog.F("attempt", attempt))
+			if err := s.reporter.CheckStep(ctx, runID, stepID, attempt); err != nil {
+				lg.Warn("liveness: refused a job the run is not waiting for", golog.F("error", err.Error()))
+				return statusOf(err)
+			}
+			lg.Debug("liveness: worker started job")
+			if err := stream.Send(&pb.EngineEvent{Event: &pb.EngineEvent_Ack{Ack: &pb.Acknowledged{}}}); err != nil {
+				lg.Error(err, "liveness: send ack failed")
 				return err
 			}
 		case *pb.WorkerEvent_Heartbeat:
-			sagalog.Trace(lg, "grpc: heartbeat", golog.F("progress_pct", e.Heartbeat.ProgressPct))
-			// No state change; could be used for long-action timeout extension.
+			sagalog.Trace(lg, "liveness: heartbeat", golog.F("progress_pct", e.Heartbeat.GetProgressPct()))
 		case *pb.WorkerEvent_Complete:
 			if !started {
-				lg.Warn("grpc: complete without start; closing stream")
-				return errors.New("grpc: complete without start")
+				lg.Warn("liveness: Complete before StartJob; closing stream")
+				return status.Error(codes.InvalidArgument, "liveness: Complete before StartJob")
 			}
-			return s.handleComplete(ctx, lg, runIDStr, int(attempt), e.Complete)
+			return s.complete(ctx, lg, runID, stepID, attempt, e.Complete)
 		case *pb.WorkerEvent_Error:
 			if !started {
-				lg.Warn("grpc: error without start; closing stream")
-				return errors.New("grpc: error without start")
+				lg.Warn("liveness: Error before StartJob; closing stream")
+				return status.Error(codes.InvalidArgument, "liveness: Error before StartJob")
 			}
-			return s.handleError(ctx, lg, runIDStr, int(attempt), e.Error)
+			// The worker's message is passed on but never logged; only the code is.
+			lg.Warn("liveness: worker reported action failure", golog.F("code", e.Error.GetCode()),
+				golog.F("retryable", e.Error.GetRetryable()))
+			if err := s.reporter.FailStep(ctx, runID, stepID, attempt, e.Error.GetCode(), e.Error.GetMessage(), e.Error.GetRetryable()); err != nil {
+				lg.Warn("liveness: failure report refused", golog.F("error", err.Error()))
+				return statusOf(err)
+			}
+			lg.Info("liveness: action failed by worker")
+			return nil
 		}
 	}
 }
 
-func (s *Server) handleComplete(ctx context.Context, lg golog.Logger, runIDStr string, attempt int, c *pb.Complete) error {
-	runID, err := uuid.Parse(runIDStr)
-	if err != nil {
-		lg.Error(err, "grpc: complete: invalid run id")
-		return err
-	}
+func (s *Server) complete(ctx context.Context, lg golog.Logger, runID uuid.UUID, stepID string, attempt int, c *pb.Complete) error {
 	var result map[string]any
-	if len(c.ResultJson) > 0 {
-		if err := json.Unmarshal(c.ResultJson, &result); err != nil {
+	if b := c.GetResultJson(); len(b) > 0 {
+		if err := json.Unmarshal(b, &result); err != nil {
 			// The raw result is kept on the run but never logged.
-			lg.Warn("grpc: result_json decode failed; storing raw result", golog.F("error", err.Error()),
-				golog.F("result_bytes", len(c.ResultJson)))
-			result = map[string]any{"_raw_result": string(c.ResultJson)}
+			lg.Warn("liveness: result_json decode failed; storing raw result", golog.F("error", err.Error()),
+				golog.F("result_bytes", len(b)))
+			result = map[string]any{"_raw_result": string(b)}
 		}
 	}
-	if err := s.S.CompleteAction(ctx, runID, attempt, result); err != nil {
-		lg.Error(err, "grpc: complete action")
-		return err
+	if err := s.reporter.CompleteStep(ctx, runID, stepID, attempt, result); err != nil {
+		lg.Warn("liveness: completion refused", golog.F("error", err.Error()))
+		return statusOf(err)
 	}
-	lg.Info("grpc: action completed by worker", golog.F("result_keys", len(result)))
-	if s.Publisher != nil {
-		if err := s.Publisher.PublishSagaAdvance(ctx, runIDStr); err != nil {
-			lg.Error(err, "grpc: publish saga.advance")
-		}
-	}
-	return nil
-}
-
-func (s *Server) handleError(ctx context.Context, lg golog.Logger, runIDStr string, attempt int, e *pb.Error) error {
-	runID, err := uuid.Parse(runIDStr)
-	if err != nil {
-		lg.Error(err, "grpc: error report: invalid run id")
-		return err
-	}
-	// The worker's message is stored on the run; only the code is logged.
-	lg.Warn("grpc: worker reported action failure", golog.F("code", e.Code), golog.F("retryable", e.Retryable))
-	if err := s.S.FailAction(ctx, runID, attempt, e.Code, e.Message, e.Retryable); err != nil {
-		lg.Error(err, "grpc: fail action")
-		return err
-	}
-	// FailAction transitioned the run to failed; no advance needed.
+	lg.Info("liveness: action completed by worker", golog.F("result_keys", len(result)))
 	return nil
 }
