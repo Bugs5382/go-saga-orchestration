@@ -31,16 +31,19 @@ import (
 	"fmt"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+
+	"github.com/Bugs5382/go-saga-orchestration/topology"
 )
 
-// Queue names.
+// Queue and exchange names, kept here for the engine's internal callers. The
+// public names live in the topology package.
 const (
-	QueueSagaAdvance = "saga.advance"
-	QueueSagaDLQ     = "saga.dlq"
-	QueueActionDLQ   = "action.dlq"
+	QueueSagaAdvance = topology.QueueSagaAdvance
+	QueueSagaDLQ     = topology.QueueSagaDLQ
+	QueueActionDLQ   = topology.QueueActionDLQ
 
-	ExchangeAction         = "action.direct"
-	ExchangeWorkflowEvents = "workflow.events"
+	ExchangeAction         = topology.ExchangeAction
+	ExchangeWorkflowEvents = topology.ExchangeWorkflowEvents
 )
 
 // Connect dials RabbitMQ and returns the connection. Caller MUST defer
@@ -53,20 +56,8 @@ func Connect(url string) (*amqp.Connection, error) {
 }
 
 // DeclareTopology sets up the queues + exchange go-saga-orchestration owns. Idempotent.
-// Workers declare their own per-service action queues bound to
-// ExchangeAction with their routing key (e.g. example.set_state).
+// Workers declare their own action queues bound to ExchangeAction with each
+// action's name (see topology.DeclareActionQueue).
 func DeclareTopology(ch *amqp.Channel) error {
-	if err := ch.ExchangeDeclare(ExchangeAction, "direct", true /*durable*/, false, false, false, nil); err != nil {
-		return fmt.Errorf("exchange %s: %w", ExchangeAction, err)
-	}
-	if err := ch.ExchangeDeclare(ExchangeWorkflowEvents, "topic", true /*durable*/, false, false, false, nil); err != nil {
-		return fmt.Errorf("exchange %s: %w", ExchangeWorkflowEvents, err)
-	}
-	for _, name := range []string{QueueSagaAdvance, QueueSagaDLQ, QueueActionDLQ} {
-		_, err := ch.QueueDeclare(name, true /*durable*/, false, false, false, nil)
-		if err != nil {
-			return fmt.Errorf("queue %s: %w", name, err)
-		}
-	}
-	return nil
+	return topology.Declare(ch)
 }
