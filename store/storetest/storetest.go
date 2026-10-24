@@ -41,23 +41,45 @@ import (
 	"github.com/Bugs5382/go-saga-orchestration/store"
 )
 
+// Option adjusts how RunSuite checks a backend.
+type Option func(*options)
+
+type options struct {
+	publishedOnly bool
+}
+
+// PublishedOnly declares that the backend's GetPublishedWorkflowByID and
+// GetPublishedRuleByID return only published versions. Without it the suite
+// expects them to fall back to the most recent version when none is
+// published, as the in-memory and Redis stores do. With it the suite expects
+// store.ErrNotFound in that case, as the PostgreSQL store does.
+func PublishedOnly() Option {
+	return func(o *options) { o.publishedOnly = true }
+}
+
 // RunSuite runs every behavior group in the store contract against the
 // implementation produced by newStore. Each group obtains its own fresh store
-// so the groups are fully isolated from one another.
-func RunSuite(t *testing.T, newStore func(t *testing.T) store.Store) {
+// so the groups are fully isolated from one another. Runs the suite creates
+// always reference a workflow definition it stored first, so backends that
+// enforce foreign keys pass too.
+func RunSuite(t *testing.T, newStore func(t *testing.T) store.Store, opts ...Option) {
 	t.Helper()
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
 	groups := []struct {
 		name string
 		fn   func(t *testing.T, s store.Store)
 	}{
 		{"Definitions", testDefinitions},
 		{"ListDefinitions", testListDefinitions},
-		{"PublishedWorkflow", testPublishedWorkflow},
+		{"PublishedWorkflow", func(t *testing.T, s store.Store) { testPublishedWorkflow(t, s, o) }},
 		{"Runs", testRuns},
 		{"RunState", testRunState},
 		{"RunVariables", testRunVariables},
 		{"Events", testEvents},
-		{"Rules", testRules},
+		{"Rules", func(t *testing.T, s store.Store) { testRules(t, s, o) }},
 		{"PauseWakeup", testPauseWakeup},
 		{"Signals", testSignals},
 		{"AwaitedEvent", testAwaitedEvent},
@@ -111,15 +133,36 @@ func requireNoErr(t *testing.T, err error, what string) {
 	}
 }
 
-// newRun builds a minimal pending run for workflowID with a fresh def ID.
-func newRun(workflowID string) domain.SagaRun {
-	return domain.NewSagaRun(workflowID, uuid.New(), nil, map[string]any{})
+// sameNumber reports whether got is a number equal to want. Backends that
+// store values as JSON hand numbers back as float64 (or int, after their own
+// conversion), so the suite compares the value, not the Go type.
+func sameNumber(got any, want float64) bool {
+	switch v := got.(type) {
+	case int:
+		return float64(v) == want
+	case int64:
+		return float64(v) == want
+	case float64:
+		return v == want
+	default:
+		return false
+	}
+}
+
+// newRun builds a minimal pending run for workflowID. It first stores a
+// published v1 definition of workflowID, so the run's DefinitionID points at
+// a real row.
+func newRun(t *testing.T, s store.Store, workflowID string) domain.SagaRun {
+	t.Helper()
+	defID, err := s.UpsertWorkflowDefinition(ctx(), seedDef(workflowID, 1, true))
+	requireNoErr(t, err, "UpsertWorkflowDefinition("+workflowID+")")
+	return domain.NewSagaRun(workflowID, defID, nil, map[string]any{})
 }
 
 // seedRun creates a run in s and returns it (failing the test on error).
 func seedRun(t *testing.T, s store.Store, workflowID string) domain.SagaRun {
 	t.Helper()
-	r := newRun(workflowID)
+	r := newRun(t, s, workflowID)
 	requireNoErr(t, s.CreateRun(ctx(), r), "CreateRun")
 	return r
 }
@@ -233,7 +276,7 @@ func testListDefinitions(t *testing.T, s store.Store) {
 	}
 }
 
-func testPublishedWorkflow(t *testing.T, s store.Store) {
+func testPublishedWorkflow(t *testing.T, s store.Store, o options) {
 	// v1 published, then v2 unpublished. The newest *published* version is v1.
 	_, err := s.UpsertWorkflowDefinition(ctx(), seedDef("wf", 1, true))
 	requireNoErr(t, err, "upsert v1")
@@ -252,9 +295,13 @@ func testPublishedWorkflow(t *testing.T, s store.Store) {
 	_, err = s.UpsertWorkflowDefinition(ctx(), seedDef("draft", 2, false))
 	requireNoErr(t, err, "upsert draft v2")
 	got, err = s.GetPublishedWorkflowByID(ctx(), "draft", nil)
-	requireNoErr(t, err, "GetPublishedWorkflowByID(draft)")
-	if got.Version != 2 {
-		t.Errorf("fallback lookup = version %d, want most recent (v2)", got.Version)
+	if o.publishedOnly {
+		requireNotFound(t, err, "GetPublishedWorkflowByID(draft)")
+	} else {
+		requireNoErr(t, err, "GetPublishedWorkflowByID(draft)")
+		if got.Version != 2 {
+			t.Errorf("fallback lookup = version %d, want most recent (v2)", got.Version)
+		}
 	}
 
 	_, err = s.GetPublishedWorkflowByID(ctx(), "unknown", nil)
@@ -262,7 +309,8 @@ func testPublishedWorkflow(t *testing.T, s store.Store) {
 }
 
 func testRuns(t *testing.T, s store.Store) {
-	run := domain.NewSagaRun("wf", uuid.New(), nil, map[string]any{"seed": 1})
+	run := newRun(t, s, "wf")
+	run.Inputs = map[string]any{"seed": 1}
 	requireNoErr(t, s.CreateRun(ctx(), run), "CreateRun")
 
 	got, err := s.GetRun(ctx(), run.ID)
@@ -270,7 +318,7 @@ func testRuns(t *testing.T, s store.Store) {
 	if got.ID != run.ID || got.WorkflowID != "wf" {
 		t.Errorf("GetRun = %+v, want id=%s wf=wf", got, run.ID)
 	}
-	if got.Inputs["seed"] != 1 {
+	if !sameNumber(got.Inputs["seed"], 1) {
 		t.Errorf("GetRun inputs = %+v, want seed=1", got.Inputs)
 	}
 
@@ -298,14 +346,14 @@ func testRunVariables(t *testing.T, s store.Store) {
 
 	got, err := s.GetRun(ctx(), run.ID)
 	requireNoErr(t, err, "GetRun")
-	if got.Variables["a"] != 1 {
+	if !sameNumber(got.Variables["a"], 1) {
 		t.Errorf("Variables[a] = %v, want 1", got.Variables["a"])
 	}
 	scope, ok := got.Variables["scope"].(map[string]any)
 	if !ok {
 		t.Fatalf("Variables[scope] = %T, want map[string]any", got.Variables["scope"])
 	}
-	if scope["x"] != 2 {
+	if !sameNumber(scope["x"], 2) {
 		t.Errorf("Variables[scope][x] = %v, want 2", scope["x"])
 	}
 
@@ -314,7 +362,7 @@ func testRunVariables(t *testing.T, s store.Store) {
 }
 
 func testEvents(t *testing.T, s store.Store) {
-	runID := uuid.New()
+	runID := seedRun(t, s, "wf").ID
 	e1 := domain.NewEvent(runID, "s1", 0, domain.EventStepSucceeded, "engine")
 	e2 := domain.NewEvent(runID, "s2", 1, domain.EventStepSucceeded, "engine")
 	requireNoErr(t, s.AppendEvent(ctx(), e1), "AppendEvent e1")
@@ -343,7 +391,7 @@ func testEvents(t *testing.T, s store.Store) {
 	requireNotFound(t, err, "GetEventByID(random)")
 }
 
-func testRules(t *testing.T, s store.Store) {
+func testRules(t *testing.T, s store.Store, o options) {
 	// Zero ID → generated and returned.
 	def := decisionRule("r", 1, true)
 	def.ID = uuid.Nil
@@ -387,9 +435,13 @@ func testRules(t *testing.T, s store.Store) {
 	_, err = s.UpsertRuleDefinition(ctx(), d2)
 	requireNoErr(t, err, "upsert draft v2")
 	got, err = s.GetPublishedRuleByID(ctx(), "draft", nil)
-	requireNoErr(t, err, "GetPublishedRuleByID(draft)")
-	if got.Version != 2 {
-		t.Errorf("rule fallback = version %d, want most recent (v2)", got.Version)
+	if o.publishedOnly {
+		requireNotFound(t, err, "GetPublishedRuleByID(draft)")
+	} else {
+		requireNoErr(t, err, "GetPublishedRuleByID(draft)")
+		if got.Version != 2 {
+			t.Errorf("rule fallback = version %d, want most recent (v2)", got.Version)
+		}
 	}
 
 	_, err = s.GetPublishedRuleByID(ctx(), "unknown", nil)
@@ -541,6 +593,8 @@ func testClearAndWake(t *testing.T, s store.Store) {
 func testChildRuns(t *testing.T, s store.Store) {
 	parent := seedRun(t, s, "wf-parent")
 	childDef := seedDef("wf-child", 1, true)
+	_, err := s.UpsertWorkflowDefinition(ctx(), childDef)
+	requireNoErr(t, err, "UpsertWorkflowDefinition(wf-child)")
 
 	childID, err := s.SpawnChildRun(ctx(), parent.ID, "stepA", "b0", childDef, map[string]any{"in": 1})
 	requireNoErr(t, err, "SpawnChildRun")
@@ -910,7 +964,7 @@ func testListRuns(t *testing.T, s store.Store) {
 	now := time.Now().UTC()
 	// Seed wf-a: 3 runs at distinct times, one failed.
 	mk := func(wf string, state domain.RunState, startedAt time.Time) domain.SagaRun {
-		r := newRun(wf)
+		r := newRun(t, s, wf)
 		r.State = state
 		r.StartedAt = startedAt
 		r.LastEventAt = startedAt
@@ -981,10 +1035,10 @@ func testListRuns(t *testing.T, s store.Store) {
 // NULL — listing it exercises the nullable-column scan path.
 func testListRunsNullCurrentStep(t *testing.T, s store.Store) {
 	// Pending run: empty current_step (→ NULL in postgres).
-	nullStep := newRun("wf-nullstep")
+	nullStep := newRun(t, s, "wf-nullstep")
 	requireNoErr(t, s.CreateRun(ctx(), nullStep), "CreateRun(null step)")
 	// A second run with a populated current_step for contrast.
-	withStep := newRun("wf-nullstep")
+	withStep := newRun(t, s, "wf-nullstep")
 	withStep.State = domain.RunStateRunning
 	withStep.CurrentStep = "step1"
 	requireNoErr(t, s.CreateRun(ctx(), withStep), "CreateRun(with step)")
@@ -1011,7 +1065,7 @@ func testListRunsNullCurrentStep(t *testing.T, s store.Store) {
 func testStats(t *testing.T, s store.Store) {
 	now := time.Now().UTC()
 	mk := func(state domain.RunState, startedAt time.Time) domain.SagaRun {
-		r := newRun("wf-stat")
+		r := newRun(t, s, "wf-stat")
 		r.State = state
 		r.StartedAt = startedAt
 		r.LastEventAt = startedAt
