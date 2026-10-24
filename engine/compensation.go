@@ -48,12 +48,79 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 import (
 	"context"
+	"fmt"
 
 	golog "github.com/Bugs5382/go-log"
+	"github.com/google/uuid"
 
 	"github.com/Bugs5382/go-saga-orchestration/domain"
 	"github.com/Bugs5382/go-saga-orchestration/engine/verbs"
 )
+
+// CompensateFailedStep rolls back the steps a run completed before
+// failedStepID failed, for a failure recorded outside Advance: a worker's
+// Error report on the liveness stream, or an application that fails an
+// awaited step itself (a timeout, a held-back dispatch that expired). It is
+// the same rollback Advance runs when a step fails while it executes: each
+// completed step's Compensation action is dispatched newest first, over the
+// action's transport, best-effort.
+//
+// The run ends failed. A run that is already failed keeps its recorded error;
+// a run that isn't terminal yet is marked failed on failedStepID. A succeeded
+// or cancelled run is refused. A parent waiting on the run is re-evaluated, as
+// it is when a step fails inside Advance.
+//
+// Compensation dispatches are not deduplicated: call it once per failure.
+func (c *Coordinator) CompensateFailedStep(ctx context.Context, runID uuid.UUID, failedStepID string) error {
+	lg := c.logger(ctx).With(golog.F("run_id", runID.String()), golog.F("failed_step", failedStepID))
+	unlock := c.runLocks.lock(runID.String())
+	defer unlock()
+	run, err := c.store.GetRun(ctx, runID)
+	if err != nil {
+		lg.Error(err, "compensation: read run failed")
+		return fmt.Errorf("compensate %s: %w", runID, err)
+	}
+	if run.State == domain.RunStateSucceeded || run.State == domain.RunStateCancelled {
+		lg.Warn("compensation: refused for a run that did not fail", golog.F("state", string(run.State)))
+		return fmt.Errorf("compensate %s: run is %s, not failed", runID, run.State)
+	}
+	def, err := c.store.GetWorkflowDefinition(ctx, run.DefinitionID)
+	if err != nil {
+		lg.Error(err, "compensation: read definition failed")
+		return fmt.Errorf("compensate %s: definition: %w", runID, err)
+	}
+	step, ok := def.StepByID(failedStepID)
+	if !ok {
+		lg.Debug("compensation: failed step is not in the definition; rolling back every completed step")
+		step = domain.Step{ID: failedStepID}
+	}
+	wasFailed := run.State == domain.RunStateFailed
+	lg.Debug("compensation: requested from outside advance", golog.F("state", string(run.State)))
+	c.compensate(ctx, run, def, step)
+
+	if wasFailed {
+		cur, err := c.store.GetRun(ctx, runID)
+		if err != nil {
+			return fmt.Errorf("compensate %s: reread run: %w", runID, err)
+		}
+		if cur.State == domain.RunStateCompensating {
+			if err := c.store.UpdateRunState(ctx, runID, domain.RunStateFailed, run.CurrentStep); err != nil {
+				lg.Error(err, "compensation: settle failed state failed")
+				return fmt.Errorf("compensate %s: settle: %w", runID, err)
+			}
+			lg.Debug("run state changed", golog.F("to_state", string(domain.RunStateFailed)))
+		}
+	} else {
+		reason := fmt.Sprintf("step %q failed", failedStepID)
+		if err := c.store.MarkRunFailed(ctx, runID, failedStepID, reason); err != nil {
+			lg.Error(err, "compensation: mark run failed failed")
+			return fmt.Errorf("compensate %s: mark failed: %w", runID, err)
+		}
+		lg.Debug("run state changed", golog.F("to_state", string(domain.RunStateFailed)))
+	}
+	c.checkParentJoin(ctx, run)
+	return nil
+}
 
 // compensate rolls back the steps a run completed before it failed. It runs the
 // Compensation action of each already-completed compensable step in reverse
