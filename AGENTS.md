@@ -53,6 +53,9 @@ Commands are defined in `Taskfile.yaml` (run with `go-task`):
 - Build: `task build` (`go build ./...`)
 - Test: `task test` (`go test -race ./...`; CI runs the tests with `-race` too). The `test/e2e` suite runs against the in-memory store, so it
   needs no Postgres/RabbitMQ; the service binaries and `cmd/engine` do.
+  The store tests against real servers skip unless their URL is set: `TEST_POSTGRES_DSN` (a
+  `postgres://` URL; each `store/postgres` test creates and drops its own database, so the role needs
+  `CREATEDB`) and `TEST_REDIS_URL`. CI starts both as service containers.
 - Lint: `task lint` (gofmt check, `golangci-lint run`, `yamllint .`)
 - License headers: `task license` (CI dry-run check) / `task license:fix` (inject MIT headers).
 
