@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.8.0 - 2026-10-24
+
+### What Changed 👀
+
+#### 🚀 Features
+
+- feat(worker): export the liveness server, queue topology and compensation for embedders @Bugs5382 (#123)
+
+### Extra
+
+**Full Changelog**: https://github.com/Bugs5382/go-saga-orchestration/compare/v0.7.1...v0.8.0
+
 ## v0.7.1 - 2026-10-24
 
 ### What Changed 👀
