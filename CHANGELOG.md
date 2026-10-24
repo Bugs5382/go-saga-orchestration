@@ -10,6 +10,7 @@
 
 #### 🐛 Bug Fixes
 
+- fix(postgres): pin the migrations table to public.schema\_migrations @Bugs5382 (#128)
 - fix(deps): bump Go to 1.26.10, x/net to v0.60.0 and amqp091-go to v1.14.0 @Bugs5382 (#127)
 
 ### Extra
