@@ -133,6 +133,10 @@ func requireNoErr(t *testing.T, err error, what string) {
 	}
 }
 
+// storeNow returns the current UTC time cut to microseconds, the precision
+// PostgreSQL keeps, so times the suite stores compare equal when read back.
+func storeNow() time.Time { return time.Now().UTC().Truncate(time.Microsecond) }
+
 // sameNumber reports whether got is a number equal to want. Backends that
 // store values as JSON hand numbers back as float64 (or int, after their own
 // conversion), so the suite compares the value, not the Go type.
@@ -450,7 +454,7 @@ func testRules(t *testing.T, s store.Store, o options) {
 
 func testPauseWakeup(t *testing.T, s store.Store) {
 	run := seedRun(t, s, "wf")
-	wakeup := time.Now().UTC().Add(time.Minute)
+	wakeup := storeNow().Add(time.Minute)
 	requireNoErr(t, s.SetPausedWithWakeup(ctx(), run.ID, wakeup), "SetPausedWithWakeup")
 
 	got, err := s.GetRun(ctx(), run.ID)
@@ -554,7 +558,7 @@ func testAwaitedEvent(t *testing.T, s store.Store) {
 
 	// WithDeadline also sets WakeupAt.
 	run2 := seedRun(t, s, "wf")
-	deadline := time.Now().UTC().Add(time.Hour)
+	deadline := storeNow().Add(time.Hour)
 	requireNoErr(t, s.SetPausedAwaitingEventWithDeadline(ctx(), run2.ID, "topic2", map[string]string{"a": "b"}, &deadline), "SetPausedAwaitingEventWithDeadline")
 	got2, _ := s.GetRun(ctx(), run2.ID)
 	if got2.WakeupAt == nil || !got2.WakeupAt.Equal(deadline) {
@@ -1063,7 +1067,7 @@ func testListRunsNullCurrentStep(t *testing.T, s store.Store) {
 }
 
 func testStats(t *testing.T, s store.Store) {
-	now := time.Now().UTC()
+	now := storeNow()
 	mk := func(state domain.RunState, startedAt time.Time) domain.SagaRun {
 		r := newRun(t, s, "wf-stat")
 		r.State = state
