@@ -35,7 +35,7 @@ fast during a wave of PRs. The shipped workflows are shaped around that:
   that react to `edited`: a title or body fix reruns them, not the build.
 - **Pull requests only.** Build, test, lint, licence, Docker Build and Docs Build run on pull
   requests, not on push to `main`. The squash merge lands the tree the PR run already tested. Only
-  the release workflows run outside pull requests: Release Manager and Release Drafter on `main`,
+  the release workflows run outside pull requests: Release Drafter on `main`,
   Docker Publish and Docs Publish on a published release.
 - **Keep the PR run honest:** the PR run covers the merged code only when the branch is up to date
   with `main` before it merges. In the branch ruleset, add **Require status checks to pass** with
@@ -59,26 +59,21 @@ issue with ordered **sub-issues** -> put it on the active **milestone** -> branc
 (the autolabeler sets the category label from the title), the template body, and a **closing
 summary** before merge -> **squash** merge. The operator (@Bugs5382) is the assignee.
 
-On merge, release-drafter drafts the next notes by label and `CHANGELOG.md` updates on `main` via the
-changelog action -- **nothing tags automatically**. When the first push to main resolves the version,
-rename the milestone to that version. The maintainer then **manually publishes the GitHub Release**,
-which creates the tag with the finalized changelog (and triggers the publish where the repo ships a
-package).
+On merge, release-drafter drafts the next notes by label -- **nothing tags automatically**. When the
+first push to main resolves the version, rename the milestone to that version. The maintainer then
+**manually publishes the GitHub Release**, which creates the tag (and triggers the publish where the
+repo ships a package). This is a Go package: its GitHub Release notes are the changelog, so there is
+no `CHANGELOG.md` and no Release Manager.
 
 Keep public artifacts (issues, PRs, commit messages) free of references to local-only design notes.
 
 ## Releasing
 
-On every push to `main` the **Release Manager** workflow (`.github/workflows/job-version-bump.yaml`)
-runs: release-drafter anticipates the next version, the manifest version is bumped (package
-ecosystems only), `CHANGELOG.md` is updated via the changelog action, and a
-`chore(pre-release): vX [skip ci]` commit is pushed back to `main`. **Nothing tags automatically.**
-The maintainer then publishes the GitHub Release by hand, which creates the `vX.Y.Z` tag with the
-finalized changelog and triggers the publish workflow where the repo ships a package.
+The maintainer publishes the release-drafter draft by hand, which creates the `vX.Y.Z` tag and
+triggers the publish workflows. **Nothing tags automatically.**
 
-The Release Manager pushes to `main` through the release GitHub App, which the branch ruleset
-(`governance/rulesets/branch-default.json`) lists as a bypass actor — without that bypass the
-`[skip ci]` commit would be rejected by the PR-required rule.
+`docs-publish.yaml` commits the versioned docs snapshot to `main` through the release GitHub App,
+which the branch ruleset lists as a bypass actor: `GITHUB_TOKEN` can't pass the PR-required rule.
 
 **GitHub Action repos release differently** — a composite/JS action has no package manifest and is
 **not** published to a registry. The maintainer manually tags `vX.Y.Z`, publishes the GitHub
