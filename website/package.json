@@ -4,10 +4,9 @@
   "private": true,
   "scripts": {
     "docusaurus": "docusaurus",
-    "sync:changelog": "node scripts/sync-changelog.mjs",
     "gen:api": "bash scripts/gen-api.sh",
     "gen:llms": "node scripts/gen-llms.mjs",
-    "gen": "npm run sync:changelog && npm run gen:api && npm run gen:llms",
+    "gen": "npm run gen:api && npm run gen:llms",
     "prestart": "npm run gen",
     "prebuild": "npm run gen",
     "start": "docusaurus start",
